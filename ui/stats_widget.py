@@ -96,6 +96,28 @@ class StatsWidget(QWidget):
         self.date_details.setMinimumHeight(100)
         calendar_layout.addWidget(self.date_details)
         
+        # 添加记录按钮
+        from PyQt5.QtWidgets import QPushButton
+        add_record_layout = QHBoxLayout()
+        add_record_layout.setAlignment(Qt.AlignRight)
+        self.add_record_button = QPushButton("添加学习记录")
+        self.add_record_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.add_record_button.clicked.connect(self._add_study_record)
+        add_record_layout.addWidget(self.add_record_button)
+        calendar_layout.addLayout(add_record_layout)
+        
         # 创建学习记录表格
         self.sessions_table = QTableWidget(0, 6)  # 增加一列用于删除按钮
         self.sessions_table.setHorizontalHeaderLabels(['ID', '开始时间', '结束时间', '时长(分钟)', '备注', '操作'])
@@ -358,6 +380,82 @@ class StatsWidget(QWidget):
         """更新设置"""
         self._load_data()
         
+    def _add_study_record(self):
+        """手动添加学习记录"""
+        from PyQt5.QtWidgets import QDialog, QFormLayout, QDateTimeEdit, QSpinBox, QLineEdit, QDialogButtonBox, QMessageBox
+        from PyQt5.QtCore import QDateTime
+        
+        try:
+            # 创建对话框
+            dialog = QDialog(self)
+            dialog.setWindowTitle("添加学习记录")
+            dialog.setMinimumWidth(400)
+            
+            # 创建表单布局
+            layout = QFormLayout(dialog)
+            
+            # 开始时间
+            start_time_edit = QDateTimeEdit(QDateTime.currentDateTime())
+            start_time_edit.setCalendarPopup(True)
+            start_time_edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+            layout.addRow("开始时间:", start_time_edit)
+            
+            # 结束时间
+            end_time_edit = QDateTimeEdit(QDateTime.currentDateTime())
+            end_time_edit.setCalendarPopup(True)
+            end_time_edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+            layout.addRow("结束时间:", end_time_edit)
+            
+            # 计划时长（分钟）
+            duration_spin = QSpinBox()
+            duration_spin.setRange(1, 180)  # 1-180分钟
+            duration_spin.setValue(25)  # 默认25分钟
+            duration_spin.setSuffix(" 分钟")
+            layout.addRow("计划时长:", duration_spin)
+            
+            # 备注
+            notes_edit = QLineEdit()
+            layout.addRow("备注:", notes_edit)
+            
+            # 按钮
+            button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            layout.addRow(button_box)
+            
+            # 显示对话框
+            if dialog.exec_() == QDialog.Accepted:
+                # 获取输入值
+                start_time = start_time_edit.dateTime().toPyDateTime()
+                end_time = end_time_edit.dateTime().toPyDateTime()
+                planned_duration = duration_spin.value() * 60  # 转换为秒
+                notes = notes_edit.text()
+                
+                # 验证时间
+                if end_time <= start_time:
+                    QMessageBox.warning(self, "时间错误", "结束时间必须晚于开始时间")
+                    return
+                
+                # 计算实际时长
+                actual_duration = int((end_time - start_time).total_seconds())
+                
+                # 创建会话记录
+                session_id = self.database.start_session("study", planned_duration, start_time)
+                
+                # 结束会话
+                self.database.end_session(session_id, True, notes, actual_duration)
+                
+                # 刷新数据
+                if hasattr(self, 'current_selected_date'):
+                    self._on_date_clicked(QDate(self.current_selected_date))
+                self._load_data()
+                
+                QMessageBox.information(self, "添加成功", "学习记录已成功添加")
+        
+        except Exception as e:
+            self.logger.error(f"添加学习记录失败: {e}")
+            QMessageBox.critical(self, "添加失败", f"添加学习记录失败: {str(e)}")
+    
     def _delete_session(self, session_id):
         """删除学习会话"""
         from PyQt5.QtWidgets import QMessageBox

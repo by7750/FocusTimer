@@ -401,7 +401,7 @@ class MainWindow(QMainWindow):
         self.current_planned_duration = planned_duration
         self.current_timer_start_time = start_time
     
-    def on_timer_finished(self, timer_type: str, duration: int):
+    def on_timer_finished(self, timer_type: str, duration: int, auto_completed: bool = True):
         """计时器完成处理"""
         self.logger.info(f"计时器完成: {timer_type}, 时长: {duration}秒")
 

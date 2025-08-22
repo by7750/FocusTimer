@@ -487,6 +487,29 @@ class Database:
         start_date = end_date - timedelta(days=days - 1)
         return self.get_daily_stats(start_date, end_date)
 
+    def get_all_sessions(self) -> List[Dict]:
+        """
+        获取所有学习会话记录
+
+        Returns:
+            所有会话记录列表
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                SELECT * FROM study_sessions 
+                ORDER BY start_time DESC
+            ''')
+
+            results = cursor.fetchall()
+            return [dict(row) for row in results]
+
+        except Exception as e:
+            self.logger.error(f"获取所有会话记录失败: {e}")
+            return []
+    
     def get_session_history(self, start_date: date = None, end_date: date = None,
                             timer_type: str = None, limit: int = 100) -> List[Dict]:
         """

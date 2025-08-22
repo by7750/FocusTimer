@@ -16,6 +16,7 @@ from PyQt5.QtGui import QIcon
 import os
 import logging
 from typing import Dict, List, Optional
+from datetime import datetime
 
 
 class TimerTypeDialog(QDialog):
@@ -88,6 +89,10 @@ class SettingsWidget(QWidget):
         timer_tab = QWidget()
         timer_layout = QVBoxLayout(timer_tab)
         
+        # 创建数据管理选项卡
+        data_tab = QWidget()
+        data_layout = QVBoxLayout(data_tab)
+        
         # 计时器类型管理
         timer_group = QGroupBox("计时器类型")
         timer_group_layout = QVBoxLayout(timer_group)
@@ -127,6 +132,36 @@ class SettingsWidget(QWidget):
         # 添加计时器选项卡
         self.tab_widget.addTab(timer_tab, "计时器")
         
+        # 数据管理选项卡内容
+        data_export_group = QGroupBox("数据导出")
+        data_export_layout = QVBoxLayout(data_export_group)
+        
+        data_export_label = QLabel("导出学习记录数据，便于数据备份和迁移：")
+        data_export_layout.addWidget(data_export_label)
+        
+        export_buttons_layout = QHBoxLayout()
+        
+        # JSON导出按钮
+        json_export_btn = QPushButton("导出为JSON")
+        json_export_btn.setIcon(QIcon.fromTheme("document-save"))
+        json_export_btn.clicked.connect(lambda: self._export_data("json"))
+        export_buttons_layout.addWidget(json_export_btn)
+        
+        # SQL导出按钮
+        sql_export_btn = QPushButton("导出为SQL脚本")
+        sql_export_btn.setIcon(QIcon.fromTheme("text-x-script"))
+        sql_export_btn.clicked.connect(lambda: self._export_data("sql"))
+        export_buttons_layout.addWidget(sql_export_btn)
+        
+        # Excel导出按钮
+        excel_export_btn = QPushButton("导出为Excel")
+        excel_export_btn.setIcon(QIcon.fromTheme("x-office-spreadsheet"))
+        excel_export_btn.clicked.connect(lambda: self._export_data("excel"))
+        export_buttons_layout.addWidget(excel_export_btn)
+        
+        data_export_layout.addLayout(export_buttons_layout)
+        data_layout.addWidget(data_export_group)
+        
         # 创建提醒设置选项卡
         notification_tab = QWidget()
         notification_layout = QVBoxLayout(notification_tab)
@@ -164,6 +199,9 @@ class SettingsWidget(QWidget):
         
         # 添加提醒选项卡
         self.tab_widget.addTab(notification_tab, "提醒")
+        
+        # 添加数据管理选项卡
+        self.tab_widget.addTab(data_tab, "数据管理")
         
         # 底部按钮
         buttons_layout = QHBoxLayout()
@@ -296,6 +334,107 @@ class SettingsWidget(QWidget):
             except Exception as e:
                 self.logger.error(f"添加计时器类型失败: {e}")
                 QMessageBox.critical(self, "添加失败", f"添加计时器类型失败: {e}")
+    
+    def _export_data(self, format_type):
+        """导出数据"""
+        try:
+            # 获取保存路径
+            default_name = f"study_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            if format_type == "json":
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self, "导出JSON数据", f"{default_name}.json", "JSON文件 (*.json)"
+                )
+                if file_path:
+                    # 获取所有学习记录
+                    sessions = self.database.get_all_sessions()
+                    
+                    # 转换为JSON格式
+                    import json
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(sessions, f, ensure_ascii=False, indent=4)
+                    
+                    QMessageBox.information(self, "导出成功", f"数据已成功导出到: {file_path}")
+            
+            elif format_type == "sql":
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self, "导出SQL脚本", f"{default_name}.sql", "SQL文件 (*.sql)"
+                )
+                if file_path:
+                    # 获取所有学习记录
+                    sessions = self.database.get_all_sessions()
+                    
+                    # 生成SQL插入语句
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write("-- 专注学习计时器数据导出\n")
+                        f.write("-- 导出时间: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + "\n\n")
+                        
+                        # 创建表结构
+                        f.write("-- 创建学习记录表\n")
+                        f.write("CREATE TABLE IF NOT EXISTS study_sessions (\n")
+                        f.write("    id INTEGER PRIMARY KEY AUTOINCREMENT,\n")
+                        f.write("    date DATE NOT NULL,\n")
+                        f.write("    start_time DATETIME NOT NULL,\n")
+                        f.write("    end_time DATETIME,\n")
+                        f.write("    timer_type TEXT NOT NULL,\n")
+                        f.write("    planned_duration INTEGER NOT NULL,\n")
+                        f.write("    actual_duration INTEGER,\n")
+                        f.write("    completed BOOLEAN DEFAULT FALSE,\n")
+                        f.write("    notes TEXT,\n")
+                        f.write("    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n")
+                        f.write(");\n\n")
+                        
+                        # 插入数据
+                        f.write("-- 插入学习记录数据\n")
+                        for session in sessions:
+                            f.write(f"INSERT INTO study_sessions (id, date, start_time, end_time, timer_type, ")
+                            f.write(f"planned_duration, actual_duration, completed, notes) VALUES (")
+                            f.write(f"{session['id']}, '{session['date']}', '{session['start_time']}', ")
+                            f.write(f"'{session['end_time']}', '{session['timer_type']}', {session['planned_duration']}, ")
+                            f.write(f"{session['actual_duration']}, {1 if session['completed'] else 0}, ")
+                            notes = session['notes'].replace("'", "''") if session['notes'] else ""
+                            f.write(f"'{notes}');\n")
+                    
+                    QMessageBox.information(self, "导出成功", f"数据已成功导出到: {file_path}")
+            
+            elif format_type == "excel":
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self, "导出Excel表格", f"{default_name}.xlsx", "Excel文件 (*.xlsx)"
+                )
+                if file_path:
+                    # 获取所有学习记录
+                    sessions = self.database.get_all_sessions()
+                    
+                    # 导出为Excel
+                    try:
+                        import pandas as pd
+                        
+                        # 转换为DataFrame
+                        df = pd.DataFrame(sessions)
+                        
+                        # 重命名列
+                        df = df.rename(columns={
+                            'id': 'ID',
+                            'date': '日期',
+                            'start_time': '开始时间',
+                            'end_time': '结束时间',
+                            'timer_type': '计时器类型',
+                            'planned_duration': '计划时长(秒)',
+                            'actual_duration': '实际时长(秒)',
+                            'completed': '是否完成',
+                            'notes': '备注'
+                        })
+                        
+                        # 导出到Excel
+                        df.to_excel(file_path, index=False)
+                        
+                        QMessageBox.information(self, "导出成功", f"数据已成功导出到: {file_path}")
+                    except ImportError:
+                        QMessageBox.warning(self, "缺少依赖", "导出Excel需要安装pandas和openpyxl库，请使用pip安装：\npip install pandas openpyxl")
+        
+        except Exception as e:
+            self.logger.error(f"导出数据失败: {e}")
+            QMessageBox.critical(self, "导出失败", f"导出数据失败: {str(e)}")
     
     def _edit_timer_type(self):
         """编辑计时器类型"""
