@@ -481,7 +481,7 @@ class MainWindow(QMainWindow):
         
         # 只有学习计时器才需要备注
         if timer_type == "study" and session_id is not None:
-            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QDialogButtonBox
+            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QDialogButtonBox, QComboBox, QFormLayout
             
             # 创建自定义对话框
             dialog = QDialog(self)
@@ -495,15 +495,30 @@ class MainWindow(QMainWindow):
             msg_label.setStyleSheet("font-size: 14px; color: #2c3e50;")
             layout.addWidget(msg_label)
             
-            # 添加备注输入框
-            note_label = QLabel("添加备注:")
-            note_label.setStyleSheet("font-size: 14px; color: #2c3e50; margin-top: 10px;")
-            layout.addWidget(note_label)
+            # 创建表单布局
+            form_layout = QFormLayout()
+            layout.addLayout(form_layout)
             
+            # 添加备注输入框
             note_input = QLineEdit()
             note_input.setPlaceholderText("记录这段时间做了什么...")
             note_input.setStyleSheet("padding: 8px;")
-            layout.addWidget(note_input)
+            form_layout.addRow("添加备注:", note_input)
+            
+            # 获取当前日期的TODO列表
+            session_date = datetime.now().date()
+            todo_items = self.database.get_todo_items(session_date.isoformat())
+            
+            # 添加TODO关联下拉框
+            todo_combo = QComboBox()
+            todo_combo.setStyleSheet("padding: 8px;")
+            todo_combo.addItem("无关联", None)
+            
+            # 添加TODO项目到下拉框
+            for todo in todo_items:
+                todo_combo.addItem(todo['content'], todo['id'])
+            
+            form_layout.addRow("关联待办事项:", todo_combo)
             
             # 添加按钮
             button_box = QDialogButtonBox(QDialogButtonBox.Ok)
@@ -525,6 +540,10 @@ class MainWindow(QMainWindow):
                 QPushButton:hover {
                     background-color: #2980b9;
                 }
+                QLabel {
+                    font-size: 14px; 
+                    color: #2c3e50;
+                }
             """)
             
             # 显示对话框
@@ -532,13 +551,25 @@ class MainWindow(QMainWindow):
                 # 获取备注内容
                 note = note_input.text().strip()
                 
-                # 更新会话备注
-                if note:
-                    try:
+                # 获取选中的TODO ID
+                todo_id = todo_combo.currentData()
+                
+                try:
+                    # 更新会话备注
+                    if note:
                         self.database.update_session_notes(session_id, note)
                         self.logger.info(f"已添加会话备注: ID={session_id}, 备注={note}")
-                    except Exception as e:
-                        self.logger.error(f"添加会话备注失败: {e}")
+                    
+                    # 更新关联的TODO
+                    if todo_id is not None:
+                        # 使用SQL直接更新，因为我们还没有专门的方法来更新todo_id
+                        conn = self.database._get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute('UPDATE study_sessions SET todo_id = ? WHERE id = ?', (todo_id, session_id))
+                        conn.commit()
+                        self.logger.info(f"已关联TODO: 会话ID={session_id}, TODO ID={todo_id}")
+                except Exception as e:
+                    self.logger.error(f"更新会话信息失败: {e}")
         else:
             # 非学习计时器使用简单消息框
             msg_box = QMessageBox(self)

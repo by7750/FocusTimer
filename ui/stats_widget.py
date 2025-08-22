@@ -119,9 +119,10 @@ class StatsWidget(QWidget):
         calendar_layout.addLayout(add_record_layout)
         
         # 创建学习记录表格
-        self.sessions_table = QTableWidget(0, 6)  # 增加一列用于删除按钮
-        self.sessions_table.setHorizontalHeaderLabels(['ID', '开始时间', '结束时间', '时长(分钟)', '备注', '操作'])
+        self.sessions_table = QTableWidget(0, 7)  # 增加一列用于TODO关联
+        self.sessions_table.setHorizontalHeaderLabels(['ID', '开始时间', '结束时间', '时长(分钟)', '备注', '关联待办', '操作'])
         self.sessions_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)  # 备注列自适应宽度
+        self.sessions_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)  # 关联待办列自适应宽度
         self.sessions_table.setMinimumHeight(200)
         self.sessions_table.setAlternatingRowColors(True)
         self.sessions_table.setEditTriggers(QTableWidget.NoEditTriggers)  # 默认不可编辑
@@ -334,6 +335,10 @@ class StatsWidget(QWidget):
                 self.sessions_table.setItem(i, 3, QTableWidgetItem(str(session['duration_minutes'])))
                 self.sessions_table.setItem(i, 4, QTableWidgetItem(session['notes'] or ""))
                 
+                # 添加关联的TODO内容
+                todo_content = session.get('todo_content', "")
+                self.sessions_table.setItem(i, 5, QTableWidgetItem(todo_content or ""))
+                
                 # 添加删除按钮
                 from PyQt5.QtWidgets import QPushButton
                 delete_btn = QPushButton("删除")
@@ -352,7 +357,7 @@ class StatsWidget(QWidget):
                 # 使用闭包保存当前会话ID
                 session_id = session['id']
                 delete_btn.clicked.connect(lambda checked, sid=session_id: self._delete_session(sid))
-                self.sessions_table.setCellWidget(i, 5, delete_btn)
+                self.sessions_table.setCellWidget(i, 6, delete_btn)
             
             if stats and len(stats) > 0:
                 stat = stats[0]
@@ -417,6 +422,21 @@ class StatsWidget(QWidget):
             notes_edit = QLineEdit()
             layout.addRow("备注:", notes_edit)
             
+            # 获取当前日期的TODO列表
+            session_date = self.current_selected_date or date.today()
+            todo_items = self.database.get_todo_items(session_date.isoformat(), include_completed=True)
+            
+            # 添加TODO关联下拉框
+            todo_combo = QComboBox()
+            todo_combo.setStyleSheet("padding: 8px;")
+            todo_combo.addItem("无关联", None)
+            
+            # 添加TODO项目到下拉框
+            for todo in todo_items:
+                todo_combo.addItem(todo['content'], todo['id'])
+            
+            layout.addRow("关联待办事项:", todo_combo)
+            
             # 按钮
             button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
             button_box.accepted.connect(dialog.accept)
@@ -439,8 +459,11 @@ class StatsWidget(QWidget):
                 # 计算实际时长
                 actual_duration = int((end_time - start_time).total_seconds())
                 
+                # 获取选中的TODO ID
+                todo_id = todo_combo.currentData()
+                
                 # 创建会话记录
-                session_id = self.database.start_session("study", planned_duration, start_time)
+                session_id = self.database.start_session("study", planned_duration, start_time, todo_id)
                 
                 # 结束会话 - 使用用户填写的结束时间
                 self.database.end_session(session_id, True, notes, actual_duration, end_time)
@@ -493,73 +516,186 @@ class StatsWidget(QWidget):
         
     def _on_session_cell_double_clicked(self, row, column):
         """双击单元格事件"""
-        # 只允许编辑备注列（第5列，索引为4）
+        # 允许编辑备注列（第5列，索引为4）和关联待办列（第6列，索引为5）
         if column == 4:
-            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QDialogButtonBox
+            self._edit_session_note(row, column)
+        elif column == 5:
+            self._edit_session_todo(row, column)
+    
+    def _edit_session_note(self, row, column):
+        """编辑会话备注"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QDialogButtonBox
+        
+        # 获取会话ID
+        session_id_item = self.sessions_table.item(row, 0)
+        if not session_id_item:
+            return
             
-            # 获取会话ID
-            session_id_item = self.sessions_table.item(row, 0)
-            if not session_id_item:
-                return
+        session_id = int(session_id_item.text())
+        current_note = self.sessions_table.item(row, column).text()
+        
+        # 创建编辑对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle("编辑备注")
+        dialog.setMinimumWidth(400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 添加说明标签
+        msg_label = QLabel(f"编辑会话 #{session_id} 的备注:")
+        msg_label.setStyleSheet("font-size: 14px; color: #2c3e50;")
+        layout.addWidget(msg_label)
+        
+        # 添加备注输入框
+        note_input = QLineEdit(current_note)
+        note_input.setPlaceholderText("记录这段时间做了什么...")
+        note_input.setStyleSheet("padding: 8px;")
+        layout.addWidget(note_input)
+        
+        # 添加按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        # 设置对话框样式
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #ecf0f1;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        
+        # 显示对话框
+        if dialog.exec_() == QDialog.Accepted:
+            # 获取新备注内容
+            new_note = note_input.text().strip()
+            
+            try:
+                # 更新数据库
+                self.database.update_session_notes(session_id, new_note)
                 
-            session_id = int(session_id_item.text())
-            current_note = self.sessions_table.item(row, column).text()
-            
-            # 创建编辑对话框
-            dialog = QDialog(self)
-            dialog.setWindowTitle("编辑备注")
-            dialog.setMinimumWidth(400)
-            
-            layout = QVBoxLayout(dialog)
-            
-            # 添加说明标签
-            msg_label = QLabel(f"编辑会话 #{session_id} 的备注:")
-            msg_label.setStyleSheet("font-size: 14px; color: #2c3e50;")
-            layout.addWidget(msg_label)
-            
-            # 添加备注输入框
-            note_input = QLineEdit(current_note)
-            note_input.setPlaceholderText("记录这段时间做了什么...")
-            note_input.setStyleSheet("padding: 8px;")
-            layout.addWidget(note_input)
-            
-            # 添加按钮
-            button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            button_box.accepted.connect(dialog.accept)
-            button_box.rejected.connect(dialog.reject)
-            layout.addWidget(button_box)
-            
-            # 设置对话框样式
-            dialog.setStyleSheet("""
-                QDialog {
-                    background-color: #ecf0f1;
-                }
-                QPushButton {
-                    background-color: #3498db;
-                    color: white;
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background-color: #2980b9;
-                }
-            """)
-            
-            # 显示对话框
-            if dialog.exec_() == QDialog.Accepted:
-                # 获取新备注内容
-                new_note = note_input.text().strip()
+                # 更新表格显示
+                self.sessions_table.item(row, column).setText(new_note)
                 
-                try:
-                    # 更新数据库
-                    self.database.update_session_notes(session_id, new_note)
-                    
-                    # 更新表格显示
-                    self.sessions_table.item(row, column).setText(new_note)
-                    
-                    self.logger.info(f"已更新会话备注: ID={session_id}, 备注={new_note}")
-                except Exception as e:
-                    self.logger.error(f"更新会话备注失败: {e}")
-                    from PyQt5.QtWidgets import QMessageBox
-                    QMessageBox.critical(self, "错误", f"更新备注失败: {str(e)}")
+                self.logger.info(f"已更新会话备注: ID={session_id}, 备注={new_note}")
+            except Exception as e:
+                self.logger.error(f"更新会话备注失败: {e}")
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "错误", f"更新备注失败: {str(e)}")
+                
+    def _edit_session_todo(self, row, column):
+        """编辑会话关联的TODO"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QComboBox, QPushButton, QDialogButtonBox
+        
+        # 获取会话ID
+        session_id_item = self.sessions_table.item(row, 0)
+        if not session_id_item:
+            return
+            
+        session_id = int(session_id_item.text())
+        
+        # 获取会话日期（从开始时间列）
+        start_time_text = self.sessions_table.item(row, 1).text()
+        try:
+            # 尝试解析完整的日期时间格式
+            session_date = datetime.strptime(start_time_text, "%Y-%m-%d %H:%M:%S").date()
+        except ValueError:
+            try:
+                # 如果只有时间，则使用当前选中的日期
+                session_date = self.current_selected_date
+            except AttributeError:
+                # 如果没有当前选中的日期，则使用今天的日期
+                session_date = date.today()
+        
+        # 创建编辑对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle("编辑关联待办")
+        dialog.setMinimumWidth(400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 添加说明标签
+        msg_label = QLabel(f"为会话 #{session_id} 关联待办事项:")
+        msg_label.setStyleSheet("font-size: 14px; color: #2c3e50;")
+        layout.addWidget(msg_label)
+        
+        # 获取当前日期的TODO列表
+        todo_items = self.database.get_todo_items(session_date.isoformat(), include_completed=True)
+        
+        # 添加TODO关联下拉框
+        todo_combo = QComboBox()
+        todo_combo.setStyleSheet("padding: 8px;")
+        todo_combo.addItem("无关联", None)
+        
+        # 获取当前关联的TODO内容
+        current_todo = self.sessions_table.item(row, column).text()
+        
+        # 添加TODO项目到下拉框
+        selected_index = 0
+        for i, todo in enumerate(todo_items):
+            todo_combo.addItem(todo['content'], todo['id'])
+            # 如果内容匹配，记录索引
+            if todo['content'] == current_todo:
+                selected_index = i + 1  # +1 因为第一项是"无关联"
+        
+        # 设置当前选中项
+        todo_combo.setCurrentIndex(selected_index)
+        
+        layout.addWidget(todo_combo)
+        
+        # 添加按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        # 设置对话框样式
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #ecf0f1;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        
+        # 显示对话框
+        if dialog.exec_() == QDialog.Accepted:
+            # 获取选中的TODO ID
+            todo_id = todo_combo.currentData()
+            
+            try:
+                # 使用SQL直接更新，因为我们还没有专门的方法来更新todo_id
+                conn = self.database._get_connection()
+                cursor = conn.cursor()
+                cursor.execute('UPDATE study_sessions SET todo_id = ? WHERE id = ?', (todo_id, session_id))
+                conn.commit()
+                
+                # 更新表格显示
+                new_todo_content = todo_combo.currentText() if todo_id is not None else ""
+                if new_todo_content == "无关联":
+                    new_todo_content = ""
+                self.sessions_table.item(row, column).setText(new_todo_content)
+                
+                self.logger.info(f"已更新会话关联TODO: ID={session_id}, TODO ID={todo_id}")
+            except Exception as e:
+                self.logger.error(f"更新会话关联TODO失败: {e}")
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "错误", f"更新关联待办失败: {str(e)}")

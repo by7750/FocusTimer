@@ -58,7 +58,8 @@ class TodoItem(QWidget):
         self.content_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.content_label.setWordWrap(True)
         self.content_label.setMinimumHeight(40)
-        
+        self.content_label.setAlignment(Qt.AlignVCenter)  # 垂直居中对齐
+
         # 根据完成状态设置样式
         self.update_style()
         

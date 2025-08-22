@@ -296,6 +296,8 @@ class TimerWidget(QWidget):
             # 如果当前处于暂停状态，使用暂停时间作为结束时间
             # 否则使用当前时间作为结束时间
             end_time = self.pause_time if self.pause_time else datetime.now()
+            # 计算实际学习时间（总时间减去剩余时间）
+            # elapsed_time = (end_time - self.start_time).total_seconds() - self.total_pause_duration
             
             # 发送计时器完成信号，手动停止时auto_completed=False
             self.timer_finished.emit(self.current_timer_type, elapsed_time, False)

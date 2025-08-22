@@ -364,7 +364,7 @@ class Database:
             self.logger.error(f"删除TODO项目失败: {e}")
             return False
 
-    def start_session(self, timer_type: str, planned_duration: int, start_time: datetime = None) -> int:
+    def start_session(self, timer_type: str, planned_duration: int, start_time: datetime = None, todo_id: int = None) -> int:
         """
         开始一个新的学习会话
 
@@ -372,6 +372,7 @@ class Database:
             timer_type: 计时器类型
             planned_duration: 计划持续时间（秒）
             start_time: 会话开始时间，如果不提供则使用当前时间
+            todo_id: 关联的TODO项目ID
 
         Returns:
             会话ID
@@ -386,15 +387,27 @@ class Database:
             
             today = start_time.date()
 
-            cursor.execute('''
-                           INSERT INTO study_sessions (date, start_time, timer_type, planned_duration)
-                           VALUES (?, ?, ?, ?)
-                           ''', (today, start_time, timer_type, planned_duration))
+            # 检查表中是否存在todo_id字段
+            cursor.execute("PRAGMA table_info(study_sessions)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'todo_id' in columns:
+                cursor.execute('''
+                               INSERT INTO study_sessions (date, start_time, timer_type, planned_duration, todo_id)
+                               VALUES (?, ?, ?, ?, ?)
+                               ''', (today, start_time, timer_type, planned_duration, todo_id))
+            else:
+                # 添加todo_id字段
+                cursor.execute('ALTER TABLE study_sessions ADD COLUMN todo_id INTEGER')
+                cursor.execute('''
+                               INSERT INTO study_sessions (date, start_time, timer_type, planned_duration, todo_id)
+                               VALUES (?, ?, ?, ?, ?)
+                               ''', (today, start_time, timer_type, planned_duration, todo_id))
 
             session_id = cursor.lastrowid
             conn.commit()
 
-            self.logger.info(f"开始新会话: ID={session_id}, 类型={timer_type}, 时长={planned_duration}秒, 开始时间={start_time}")
+            self.logger.info(f"开始新会话: ID={session_id}, 类型={timer_type}, 时长={planned_duration}秒, 开始时间={start_time}, 关联TODO={todo_id}")
             return session_id
 
         except Exception as e:
@@ -532,14 +545,29 @@ class Database:
                 
             conn = self._get_connection()
             cursor = conn.cursor()
-
-            cursor.execute('''
-                           SELECT id, date, start_time, end_time, timer_type, 
-                                  planned_duration, actual_duration, completed, notes
-                           FROM study_sessions
-                           WHERE date = ? AND timer_type = 'study'
-                           ORDER BY start_time DESC
-                           ''', (target_date,))
+            
+            # 检查表中是否存在todo_id字段
+            cursor.execute("PRAGMA table_info(study_sessions)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'todo_id' in columns:
+                cursor.execute('''
+                               SELECT s.id, s.date, s.start_time, s.end_time, s.timer_type, 
+                                      s.planned_duration, s.actual_duration, s.completed, s.notes, s.todo_id,
+                                      t.content as todo_content
+                               FROM study_sessions s
+                               LEFT JOIN todo_items t ON s.todo_id = t.id
+                               WHERE s.date = ? AND s.timer_type = 'study'
+                               ORDER BY s.start_time DESC
+                               ''', (target_date,))
+            else:
+                cursor.execute('''
+                               SELECT id, date, start_time, end_time, timer_type, 
+                                      planned_duration, actual_duration, completed, notes
+                               FROM study_sessions
+                               WHERE date = ? AND timer_type = 'study'
+                               ORDER BY start_time DESC
+                               ''', (target_date,))
 
             results = cursor.fetchall()
             sessions = []
@@ -561,6 +589,12 @@ class Database:
                     'completed': bool(row['completed']),
                     'notes': row['notes'] or ''
                 }
+                
+                # 添加TODO相关信息（如果存在）
+                if 'todo_id' in columns and 'todo_id' in row and row['todo_id']:
+                    session['todo_id'] = row['todo_id']
+                    session['todo_content'] = row['todo_content'] if 'todo_content' in row else ''
+                
                 sessions.append(session)
 
             return sessions
@@ -715,30 +749,44 @@ class Database:
             conn = self._get_connection()
             cursor = conn.cursor()
 
+            # 检查表中是否存在todo_id字段
+            cursor.execute("PRAGMA table_info(study_sessions)")
+            columns = [column[1] for column in cursor.fetchall()]
+            has_todo_id = 'todo_id' in columns
+
             conditions = []
             params = []
 
             if start_date:
-                conditions.append('date >= ?')
+                conditions.append('s.date >= ?')
                 params.append(start_date)
 
             if end_date:
-                conditions.append('date <= ?')
+                conditions.append('s.date <= ?')
                 params.append(end_date)
 
             if timer_type:
-                conditions.append('timer_type = ?')
+                conditions.append('s.timer_type = ?')
                 params.append(timer_type)
 
             where_clause = ' AND '.join(conditions) if conditions else '1=1'
             params.append(limit)
 
-            cursor.execute(f'''
-                SELECT * FROM study_sessions 
-                WHERE {where_clause}
-                ORDER BY start_time DESC
-                LIMIT ?
-            ''', params)
+            if has_todo_id:
+                cursor.execute(f'''
+                    SELECT s.*, t.content as todo_content FROM study_sessions s
+                    LEFT JOIN todo_items t ON s.todo_id = t.id
+                    WHERE {where_clause}
+                    ORDER BY s.start_time DESC
+                    LIMIT ?
+                ''', params)
+            else:
+                cursor.execute(f'''
+                    SELECT * FROM study_sessions 
+                    WHERE {where_clause}
+                    ORDER BY start_time DESC
+                    LIMIT ?
+                ''', params)
 
             results = cursor.fetchall()
             return [dict(row) for row in results]
