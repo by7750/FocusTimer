@@ -1,0 +1,467 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+统计页面模块
+负责展示学习时间统计数据
+"""
+
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+                             QTabWidget, QCalendarWidget, QTableWidget, 
+                             QTableWidgetItem, QHeaderView, QSplitter)
+from PyQt5.QtCore import Qt, QDate, pyqtSignal
+from PyQt5.QtGui import QColor, QPalette, QPainter
+from PyQt5.QtChart import QChart, QChartView, QLineSeries, QDateTimeAxis, QValueAxis
+
+from datetime import datetime, date, timedelta
+import logging
+
+
+def seconds_to_minutes_text(seconds: int) -> str:
+    """将秒转换为分钟文本"""
+    m = round(max(0, int(seconds)) / 60.0, 1)
+    return f"{m}"
+
+
+def seconds_to_hours_text(seconds: int) -> str:
+    """将秒转换为小时文本"""
+    h = round(max(0, int(seconds)) / 3600.0, 2)
+    return f"{h}"
+
+
+class StatsWidget(QWidget):
+    """统计页面组件"""
+    
+    def __init__(self, settings, database, parent=None):
+        super().__init__(parent)
+        self.settings = settings
+        self.database = database
+        self.logger = logging.getLogger(__name__)
+        
+        self._build_ui()
+        self._setup_styles()
+        self._load_data()
+        
+    def refresh_data(self):
+        """刷新统计数据"""
+        self._load_data()
+
+    def _build_ui(self):
+        """构建界面"""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(10)
+        
+        # 标题
+        title_label = QLabel("学习统计")
+        title_label.setObjectName("pageTitle")
+        main_layout.addWidget(title_label)
+        
+        # 创建选项卡
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
+        
+        # 创建图表选项卡
+        chart_tab = QWidget()
+        chart_layout = QVBoxLayout(chart_tab)
+        
+        # 创建折线图
+        self.chart_view = self._create_chart()
+        chart_layout.addWidget(self.chart_view)
+        
+        # 创建表格
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(['日期', '学习时长(分钟)'])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setMinimumHeight(200)
+        chart_layout.addWidget(self.table)
+        
+        # 添加图表选项卡
+        self.tab_widget.addTab(chart_tab, "趋势图")
+        
+        # 创建日历选项卡
+        calendar_tab = QWidget()
+        calendar_layout = QVBoxLayout(calendar_tab)
+        
+        # 创建日历
+        self.calendar = QCalendarWidget()
+        self.calendar.setGridVisible(True)
+        self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        self.calendar.setHorizontalHeaderFormat(QCalendarWidget.SingleLetterDayNames)
+        self.calendar.clicked.connect(self._on_date_clicked)
+        calendar_layout.addWidget(self.calendar)
+        
+        # 日期详情
+        self.date_details = QLabel("选择日期查看详情")
+        self.date_details.setAlignment(Qt.AlignCenter)
+        self.date_details.setMinimumHeight(100)
+        calendar_layout.addWidget(self.date_details)
+        
+        # 创建学习记录表格
+        self.sessions_table = QTableWidget(0, 6)  # 增加一列用于删除按钮
+        self.sessions_table.setHorizontalHeaderLabels(['ID', '开始时间', '结束时间', '时长(分钟)', '备注', '操作'])
+        self.sessions_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)  # 备注列自适应宽度
+        self.sessions_table.setMinimumHeight(200)
+        self.sessions_table.setAlternatingRowColors(True)
+        self.sessions_table.setEditTriggers(QTableWidget.NoEditTriggers)  # 默认不可编辑
+        self.sessions_table.cellDoubleClicked.connect(self._on_session_cell_double_clicked)  # 双击事件
+        calendar_layout.addWidget(self.sessions_table)
+        
+        # 添加日历选项卡
+        self.tab_widget.addTab(calendar_tab, "日历视图")
+        
+        # 设置样式
+        self._setup_styles()
+
+    def _setup_styles(self):
+        """设置样式"""
+        # 设置图表样式
+        self.chart_view.setRenderHint(QPainter.HighQualityAntialiasing)
+        
+        # 设置表格样式
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        
+        # 设置日历样式
+        self.calendar.setStyleSheet("""
+            QCalendarWidget QToolButton {
+                height: 30px;
+                width: 100px;
+                color: #333;
+                font-size: 14px;
+                icon-size: 24px, 24px;
+                background-color: #f5f5f5;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+            QCalendarWidget QMenu {
+                width: 150px;
+                left: 20px;
+                color: #333;
+                font-size: 14px;
+                background-color: #fff;
+                border: 1px solid #ccc;
+            }
+            QCalendarWidget QSpinBox {
+                width: 100px;
+                font-size: 14px;
+                color: #333;
+                background-color: #fff;
+                selection-background-color: #4a86e8;
+                selection-color: #fff;
+            }
+            QCalendarWidget QAbstractItemView:enabled {
+                font-size: 14px;
+                color: #333;
+                background-color: #fff;
+                selection-background-color: #4a86e8;
+                selection-color: #fff;
+            }
+            QCalendarWidget QWidget#qt_calendar_navigationbar {
+                background-color: #f5f5f5;
+                border: 1px solid #ccc;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+        """)
+
+    def _create_chart(self) -> QChartView:
+        """创建折线图"""
+        # 创建折线系列
+        self.series = QLineSeries()
+        self.series.setName("学习时间(小时)")
+        
+        # 创建图表
+        chart = QChart()
+        chart.addSeries(self.series)
+        chart.setTitle("近7天学习时间趋势")
+        chart.setAnimationOptions(QChart.SeriesAnimations)
+        
+        # 创建X轴（日期）
+        self.axis_x = QDateTimeAxis()
+        self.axis_x.setFormat("MM-dd")
+        self.axis_x.setTitleText("日期")
+        chart.addAxis(self.axis_x, Qt.AlignBottom)
+        self.series.attachAxis(self.axis_x)
+        
+        # 创建Y轴（小时）
+        self.axis_y = QValueAxis()
+        self.axis_y.setLabelFormat("%.1f")
+        self.axis_y.setTitleText("学习时间(小时)")
+        self.axis_y.setMin(0)
+        chart.addAxis(self.axis_y, Qt.AlignLeft)
+        self.series.attachAxis(self.axis_y)
+        
+        # 创建图表视图
+        chart_view = QChartView(chart)
+        chart_view.setMinimumHeight(300)
+        
+        return chart_view
+
+    def _load_data(self):
+        """加载数据"""
+        try:
+            # 获取最近7天数据
+            end_date = date.today()
+            start_date = end_date - timedelta(days=6)  # 7天包括今天
+            
+            # 获取每日统计数据
+            stats = self.database.get_recent_stats(7)
+            
+            # 如果没有数据，创建空数据
+            if not stats:
+                self.logger.warning("没有找到统计数据")
+                return
+            
+            # 准备图表数据
+            self.series.clear()
+            
+            # 准备表格数据
+            self.table.setRowCount(len(stats))
+            
+            # 设置X轴范围
+            self.axis_x.setRange(
+                QDate(start_date.year, start_date.month, start_date.day).startOfDay(),
+                QDate(end_date.year, end_date.month, end_date.day).endOfDay()
+            )
+            
+            # 最大学习时间（小时）
+            max_hours = 0
+            
+            # 填充数据
+            for i, stat in enumerate(stats):
+                # 日期
+                stat_date = datetime.strptime(stat['date'], '%Y-%m-%d').date()
+                qt_date = QDate(stat_date.year, stat_date.month, stat_date.day)
+                
+                # 学习时间（秒）
+                study_time = stat['total_study_time']
+                
+                # 添加到图表
+                timestamp = qt_date.startOfDay().toMSecsSinceEpoch()
+                hours = study_time / 3600.0
+                self.series.append(timestamp, hours)
+                
+                # 更新最大值
+                if hours > max_hours:
+                    max_hours = hours
+                
+                # 添加到表格
+                self.table.setItem(i, 0, QTableWidgetItem(stat_date.strftime('%Y-%m-%d')))
+                self.table.setItem(i, 1, QTableWidgetItem(seconds_to_minutes_text(study_time)))
+            
+            # 设置Y轴范围（最大值上取整 + 0.5）
+            self.axis_y.setMax(max(1, int(max_hours) + 1))
+            
+            # 更新日历数据
+            self._update_calendar_data(stats)
+            
+        except Exception as e:
+            self.logger.error(f"加载统计数据失败: {e}")
+
+    def _update_calendar_data(self, stats):
+        """更新日历数据"""
+        # 清除所有日期格式
+        self.calendar.setDateTextFormat(QDate(), self.calendar.dateTextFormat(QDate()))
+        
+        # 设置日期格式
+        for stat in stats:
+            # 解析日期
+            stat_date = datetime.strptime(stat['date'], '%Y-%m-%d').date()
+            qt_date = QDate(stat_date.year, stat_date.month, stat_date.day)
+            
+            # 学习时间（秒）
+            study_time = stat['total_study_time']
+            
+            # 根据学习时间设置颜色深浅
+            if study_time > 0:
+                # 计算颜色深浅（最大3小时）
+                intensity = min(1.0, study_time / (3 * 3600))
+                
+                # 创建日期格式
+                fmt = self.calendar.dateTextFormat(qt_date)
+                color = QColor(100, 149, 237)  # 蓝色
+                color.setAlphaF(0.2 + intensity * 0.8)  # 透明度从0.2到1.0
+                
+                # 设置背景色
+                fmt.setBackground(color)
+                
+                # 应用格式
+                self.calendar.setDateTextFormat(qt_date, fmt)
+
+    def _on_date_clicked(self, date):
+        """日期点击事件"""
+        try:
+            # 转换为Python日期
+            py_date = date.toPyDate()
+            self.current_selected_date = py_date  # 保存当前选中的日期
+            
+            # 获取该日期的统计数据
+            stats = self.database.get_daily_stats(py_date, py_date)
+            
+            # 获取该日期的学习会话记录
+            sessions = self.database.get_daily_sessions(py_date)
+            
+            # 更新会话记录表格
+            self.sessions_table.setRowCount(len(sessions))
+            for i, session in enumerate(sessions):
+                # 设置表格内容
+                self.sessions_table.setItem(i, 0, QTableWidgetItem(str(session['id'])))
+                self.sessions_table.setItem(i, 1, QTableWidgetItem(session['start_time']))
+                self.sessions_table.setItem(i, 2, QTableWidgetItem(session['end_time']))
+                self.sessions_table.setItem(i, 3, QTableWidgetItem(str(session['duration_minutes'])))
+                self.sessions_table.setItem(i, 4, QTableWidgetItem(session['notes'] or ""))
+                
+                # 添加删除按钮
+                from PyQt5.QtWidgets import QPushButton
+                delete_btn = QPushButton("删除")
+                delete_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #e74c3c;
+                        color: white;
+                        border: none;
+                        padding: 5px 10px;
+                        border-radius: 3px;
+                    }
+                    QPushButton:hover {
+                        background-color: #c0392b;
+                    }
+                """)
+                # 使用闭包保存当前会话ID
+                session_id = session['id']
+                delete_btn.clicked.connect(lambda checked, sid=session_id: self._delete_session(sid))
+                self.sessions_table.setCellWidget(i, 5, delete_btn)
+            
+            if stats and len(stats) > 0:
+                stat = stats[0]
+                study_time = stat['total_study_time']
+                rest_time = stat['total_rest_time']
+                session_count = stat['session_count']
+                completion_rate = stat['completion_rate'] * 100  # 转为百分比
+                
+                # 更新详情标签
+                details = f"日期: {py_date.strftime('%Y-%m-%d')}\n"
+                details += f"学习时间: {seconds_to_hours_text(study_time)} 小时\n"
+                details += f"休息时间: {seconds_to_minutes_text(rest_time)} 分钟\n"
+                details += f"专注次数: {session_count} 次\n"
+                details += f"完成率: {completion_rate:.1f}%"
+                
+                self.date_details.setText(details)
+            else:
+                self.date_details.setText(f"日期: {py_date.strftime('%Y-%m-%d')}\n没有学习记录")
+                
+        except Exception as e:
+            self.logger.error(f"获取日期详情失败: {e}")
+            self.date_details.setText("获取数据失败")
+
+    def update_settings(self):
+        """更新设置"""
+        self._load_data()
+        
+    def _delete_session(self, session_id):
+        """删除学习会话"""
+        from PyQt5.QtWidgets import QMessageBox
+        
+        # 确认对话框
+        reply = QMessageBox.question(
+            self, 
+            '确认删除', 
+            f'确定要删除会话 #{session_id} 吗？\n此操作不可恢复。',
+            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                # 调用数据库删除方法
+                self.database.delete_session(session_id)
+                self.logger.info(f"已删除会话: ID={session_id}")
+                
+                # 刷新当前日期的数据
+                if hasattr(self, 'current_selected_date'):
+                    # 重新加载当前选中日期的数据
+                    self._on_date_clicked(QDate(self.current_selected_date))
+                    
+                # 刷新统计数据
+                self._load_data()
+                
+                # 显示成功消息
+                QMessageBox.information(self, "成功", "会话已成功删除")
+                
+            except Exception as e:
+                self.logger.error(f"删除会话失败: {e}")
+                QMessageBox.critical(self, "错误", f"删除会话失败: {str(e)}")
+        
+        
+    def _on_session_cell_double_clicked(self, row, column):
+        """双击单元格事件"""
+        # 只允许编辑备注列（第5列，索引为4）
+        if column == 4:
+            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QDialogButtonBox
+            
+            # 获取会话ID
+            session_id_item = self.sessions_table.item(row, 0)
+            if not session_id_item:
+                return
+                
+            session_id = int(session_id_item.text())
+            current_note = self.sessions_table.item(row, column).text()
+            
+            # 创建编辑对话框
+            dialog = QDialog(self)
+            dialog.setWindowTitle("编辑备注")
+            dialog.setMinimumWidth(400)
+            
+            layout = QVBoxLayout(dialog)
+            
+            # 添加说明标签
+            msg_label = QLabel(f"编辑会话 #{session_id} 的备注:")
+            msg_label.setStyleSheet("font-size: 14px; color: #2c3e50;")
+            layout.addWidget(msg_label)
+            
+            # 添加备注输入框
+            note_input = QLineEdit(current_note)
+            note_input.setPlaceholderText("记录这段时间做了什么...")
+            note_input.setStyleSheet("padding: 8px;")
+            layout.addWidget(note_input)
+            
+            # 添加按钮
+            button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            layout.addWidget(button_box)
+            
+            # 设置对话框样式
+            dialog.setStyleSheet("""
+                QDialog {
+                    background-color: #ecf0f1;
+                }
+                QPushButton {
+                    background-color: #3498db;
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #2980b9;
+                }
+            """)
+            
+            # 显示对话框
+            if dialog.exec_() == QDialog.Accepted:
+                # 获取新备注内容
+                new_note = note_input.text().strip()
+                
+                try:
+                    # 更新数据库
+                    self.database.update_session_notes(session_id, new_note)
+                    
+                    # 更新表格显示
+                    self.sessions_table.item(row, column).setText(new_note)
+                    
+                    self.logger.info(f"已更新会话备注: ID={session_id}, 备注={new_note}")
+                except Exception as e:
+                    self.logger.error(f"更新会话备注失败: {e}")
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.critical(self, "错误", f"更新备注失败: {str(e)}")

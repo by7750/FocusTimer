@@ -1,0 +1,80 @@
+{
+    "app": {
+        "language": "zh_CN",
+        "theme": "light",
+        "auto_start": false,
+        "minimize_to_tray": true,
+        "window_size": [
+            800,
+            600
+        ],
+        "window_position": [
+            240,
+            79
+        ],
+        "close_tip_shown": true
+    },
+    "timer": {
+        "types": [
+            {
+                "id": "study",
+                "name": "学习",
+                "duration": 10,
+                "color": "#4CAF50",
+                "icon": "study"
+            },
+            {
+                "id": "rest",
+                "name": "休息",
+                "duration": 60,
+                "color": "#2196F3",
+                "icon": "rest"
+            },
+            {
+                "id": "1",
+                "name": "1",
+                "duration": 4,
+                "color": "#4CAF50",
+                "icon": "timer"
+            },
+            {
+                "id": "2",
+                "name": "2",
+                "duration": 5,
+                "color": "#4CAF50",
+                "icon": "timer"
+            }
+        ],
+        "current_type": "study",
+        "auto_switch": true,
+        "auto_start_next": true
+    },
+    "notification": {
+        "sound_enabled": true,
+        "sound_file": "E:/UserData/Music/童话镇-陈一发儿.mp3",
+        "sound_volume": 0.8,
+        "popup_enabled": true,
+        "popup_duration": 10,
+        "desktop_notification": true,
+        "sound": {
+            "enabled": true,
+            "file": "E:/UserData/Music/曼波/曼波 (2).mp3"
+        },
+        "popup": {
+            "enabled": true
+        }
+    },
+    "statistics": {
+        "data_retention_days": 365,
+        "backup_enabled": true,
+        "backup_interval": 7,
+        "export_format": "json"
+    },
+    "ui": {
+        "show_seconds": true,
+        "progress_style": "circle",
+        "animation_enabled": true,
+        "font_size": 12,
+        "opacity": 1.0
+    }
+}
