@@ -168,11 +168,27 @@ class Database:
                                )
                            ''')
 
+            # 创建TODO列表表
+            cursor.execute('''
+                           CREATE TABLE IF NOT EXISTS todo_items
+                           (
+                               id INTEGER PRIMARY KEY AUTOINCREMENT,
+                               content TEXT NOT NULL,
+                               date DATE NOT NULL,
+                               completed BOOLEAN DEFAULT FALSE,
+                               created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                               completed_at DATETIME,
+                               priority INTEGER DEFAULT 0
+                           )
+                           ''')
+            
             # 创建索引提高查询性能
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_study_sessions_date ON study_sessions(date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_study_sessions_timer_type ON study_sessions(timer_type)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_daily_stats_date ON daily_stats(date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_timer_type_stats_date ON timer_type_stats(date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_todo_items_date ON todo_items(date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_todo_items_completed ON todo_items(completed)')
 
             conn.commit()
             self.logger.info("数据库初始化完成")
@@ -180,6 +196,173 @@ class Database:
         except Exception as e:
             self.logger.error(f"数据库初始化失败: {e}")
             raise
+            
+    def add_todo_item(self, content: str, date_str: str = None, priority: int = 0) -> int:
+        """
+        添加一个新的TODO项目
+        
+        Args:
+            content: 项目内容
+            date_str: 日期字符串，格式为YYYY-MM-DD，默认为今天
+            priority: 优先级，数字越大优先级越高
+            
+        Returns:
+            新添加的TODO项目ID
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 如果没有提供日期，则使用今天的日期
+            if date_str is None:
+                todo_date = date.today()
+            else:
+                todo_date = date.fromisoformat(date_str)
+                
+            cursor.execute('''
+                INSERT INTO todo_items (content, date, priority, created_at)
+                VALUES (?, ?, ?, ?)
+            ''', (content, todo_date, priority, datetime.now()))
+            
+            todo_id = cursor.lastrowid
+            conn.commit()
+            
+            self.logger.info(f"添加TODO项目: ID={todo_id}, 内容={content}, 日期={todo_date}")
+            return todo_id
+            
+        except Exception as e:
+            self.logger.error(f"添加TODO项目失败: {e}")
+            raise
+            
+    def get_todo_items(self, date_str: str = None, include_completed: bool = False) -> List[Dict]:
+        """
+        获取指定日期的TODO项目列表
+        
+        Args:
+            date_str: 日期字符串，格式为YYYY-MM-DD，默认为今天
+            include_completed: 是否包含已完成的项目
+            
+        Returns:
+            TODO项目列表
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 如果没有提供日期，则使用今天的日期
+            if date_str is None:
+                todo_date = date.today()
+            else:
+                todo_date = date.fromisoformat(date_str)
+                
+            # 构建查询条件
+            conditions = ["date = ?"]
+            params = [todo_date]
+            
+            if not include_completed:
+                conditions.append("completed = 0")
+                
+            where_clause = " AND ".join(conditions)
+            
+            cursor.execute(f'''
+                SELECT id, content, date, completed, created_at, completed_at, priority
+                FROM todo_items
+                WHERE {where_clause}
+                ORDER BY priority DESC, created_at ASC
+            ''', params)
+            
+            results = cursor.fetchall()
+            return [dict(row) for row in results]
+            
+        except Exception as e:
+            self.logger.error(f"获取TODO项目失败: {e}")
+            return []
+            
+    def update_todo_item(self, todo_id: int, content: str = None, completed: bool = None, 
+                         priority: int = None) -> bool:
+        """
+        更新TODO项目
+        
+        Args:
+            todo_id: TODO项目ID
+            content: 新的内容，如果为None则不更新
+            completed: 是否完成，如果为None则不更新
+            priority: 新的优先级，如果为None则不更新
+            
+        Returns:
+            更新是否成功
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 构建更新字段
+            update_fields = []
+            params = []
+            
+            if content is not None:
+                update_fields.append("content = ?")
+                params.append(content)
+                
+            if completed is not None:
+                update_fields.append("completed = ?")
+                params.append(1 if completed else 0)
+                
+                # 如果标记为完成，记录完成时间
+                if completed:
+                    update_fields.append("completed_at = ?")
+                    params.append(datetime.now())
+                else:
+                    update_fields.append("completed_at = NULL")
+                    
+            if priority is not None:
+                update_fields.append("priority = ?")
+                params.append(priority)
+                
+            if not update_fields:
+                return True  # 没有需要更新的字段
+                
+            # 构建SQL语句
+            set_clause = ", ".join(update_fields)
+            params.append(todo_id)
+            
+            cursor.execute(f'''
+                UPDATE todo_items
+                SET {set_clause}
+                WHERE id = ?
+            ''', params)
+            
+            conn.commit()
+            self.logger.info(f"更新TODO项目: ID={todo_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"更新TODO项目失败: {e}")
+            return False
+            
+    def delete_todo_item(self, todo_id: int) -> bool:
+        """
+        删除TODO项目
+        
+        Args:
+            todo_id: TODO项目ID
+            
+        Returns:
+            删除是否成功
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM todo_items WHERE id = ?', (todo_id,))
+            conn.commit()
+            
+            self.logger.info(f"删除TODO项目: ID={todo_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"删除TODO项目失败: {e}")
+            return False
 
     def start_session(self, timer_type: str, planned_duration: int, start_time: datetime = None) -> int:
         """

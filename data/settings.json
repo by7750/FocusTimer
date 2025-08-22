@@ -45,7 +45,7 @@
                 "icon": "timer"
             }
         ],
-        "current_type": "rest",
+        "current_type": "study",
         "auto_switch": true,
         "auto_start_next": true
     },

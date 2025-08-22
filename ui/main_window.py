@@ -90,6 +90,7 @@ class NavigationBar(QFrame):
         nav_pages = [
             ("timer", "计时器", "⏰"),
             ("stats", "统计", "📊"),
+            ("todo", "待办事项", "📝"),
             ("settings", "设置", "⚙️")
         ]
 
@@ -278,6 +279,11 @@ class MainWindow(QMainWindow):
         self.stats_widget = StatsWidget(self.settings, self.database)
         self.stacked_widget.addWidget(self.stats_widget)
 
+        # 待办事项页面
+        from ui.todo_widget import TodoWidget
+        self.todo_widget = TodoWidget(self.settings, self.database)
+        self.stacked_widget.addWidget(self.todo_widget)
+
         # 设置页面
         self.settings_widget = SettingsWidget(self.settings, self.database)
         self.stacked_widget.addWidget(self.settings_widget)
@@ -286,7 +292,8 @@ class MainWindow(QMainWindow):
         self.page_mapping = {
             "timer": 0,
             "stats": 1,
-            "settings": 2
+            "todo": 2,
+            "settings": 3
         }
 
         # 设置默认页面
