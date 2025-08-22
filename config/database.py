@@ -218,7 +218,7 @@ class Database:
             self.logger.error(f"创建会话失败: {e}")
             raise
 
-    def end_session(self, session_id: int, completed: bool = True, notes: str = "", actual_duration: int = None):
+    def end_session(self, session_id: int, completed: bool = True, notes: str = "", actual_duration: int = None, end_time: datetime = None):
         """
         结束学习会话
 
@@ -227,6 +227,7 @@ class Database:
             completed: 是否完成
             notes: 备注
             actual_duration: 实际学习时长（秒），如果提供则使用此值，否则计算开始和结束时间的差值
+            end_time: 结束时间，如果不提供则使用当前时间
         """
         try:
             conn = self._get_connection()
@@ -240,7 +241,10 @@ class Database:
                 raise ValueError(f"会话ID {session_id} 不存在")
 
             start_time = datetime.fromisoformat(result['start_time'])
-            end_time = datetime.now()
+            
+            # 如果没有提供结束时间，则使用当前时间
+            if end_time is None:
+                end_time = datetime.now()
             
             # 如果提供了实际学习时长，则使用此值，否则计算开始和结束时间的差值
             if actual_duration is None:

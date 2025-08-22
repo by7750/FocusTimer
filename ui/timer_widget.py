@@ -19,7 +19,7 @@ class TimerWidget(QWidget):
     """圆形倒计时组件"""
 
     # 计时器信号
-    timer_finished = pyqtSignal(str, int)  # 参数：计时器类型ID, 持续时间（秒）
+    timer_finished = pyqtSignal(str, int, bool)  # 参数：计时器类型ID, 持续时间（秒）, 是否自动完成
     timer_started = pyqtSignal(str, int, object)   # 参数：计时器类型ID, 计划时长（秒）, 开始时间
 
     def __init__(self, settings, database, parent=None):
@@ -297,8 +297,8 @@ class TimerWidget(QWidget):
             # 否则使用当前时间作为结束时间
             end_time = self.pause_time if self.pause_time else datetime.now()
             
-            # 发送计时器完成信号
-            self.timer_finished.emit(self.current_timer_type, elapsed_time)
+            # 发送计时器完成信号，手动停止时auto_completed=False
+            self.timer_finished.emit(self.current_timer_type, elapsed_time, False)
         
         # 重置时间记录
         self.start_time = None
@@ -341,15 +341,14 @@ class TimerWidget(QWidget):
                 # 计算实际学习时间（总时间减去剩余时间）
                 elapsed_time = self.total_seconds - self.remaining_seconds
                 
-                # 记录完成的计时器类型和时长
-                if self.current_timer_type == 'study' and self.start_time is not None:
-                    # 发送计时器完成信号
-                    self.timer_finished.emit(self.current_timer_type, self.total_seconds)
-                    
-                    # 重置时间记录
-                    self.start_time = None
-                    self.pause_time = None
-                    self.total_pause_duration = 0
+                # 记录完成的计时器类型和时长，对所有计时器类型都发送信号
+                # 发送计时器完成信号，自动完成时auto_completed=True
+                self.timer_finished.emit(self.current_timer_type, self.total_seconds, True)
+                
+                # 重置时间记录
+                self.start_time = None
+                self.pause_time = None
+                self.total_pause_duration = 0
                 
                 # 如果设置了自动切换，切换到下一个计时器类型
                 if self.settings.get("timer.auto_switch", False):

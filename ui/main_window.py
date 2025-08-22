@@ -403,7 +403,7 @@ class MainWindow(QMainWindow):
     
     def on_timer_finished(self, timer_type: str, duration: int, auto_completed: bool = True):
         """计时器完成处理"""
-        self.logger.info(f"计时器完成: {timer_type}, 时长: {duration}秒")
+        self.logger.info(f"计时器完成: {timer_type}, 时长: {duration}秒, 自动完成: {auto_completed}")
 
         # 获取计时器类型名称
         timer_type_obj = self.settings.get_timer_type_by_id(timer_type)
@@ -441,16 +441,18 @@ class MainWindow(QMainWindow):
                 self.logger.error(f"记录学习时间失败: {e}")
 
         # 播放提醒音（先播放音乐，再显示弹窗）
-        if self.settings.get("notification.sound_enabled", True):
+        # 对所有计时器类型，在自动完成时都播放提示音
+        if self.settings.get("notification.sound_enabled", True) and auto_completed:
             self.play_notification_sound()
+            
+        # 显示通知弹窗（对所有计时器类型）
+        if self.settings.get("notification.popup_enabled", True):
+            self.show_completion_notification(timer_type, duration, session_id_for_note)
+
             
         # 根据设置决定是否显示主窗口
         if self.settings.get("notification.show_main_window", True) and not self.isVisible():
             self.show_window()
-            
-        # 显示通知
-        if self.settings.get("notification.popup_enabled", True):
-            self.show_completion_notification(timer_type, duration, session_id_for_note)
 
         # 如果窗口被最小化或隐藏，显示系统托盘通知
         if (self.isMinimized() or not self.isVisible()) and self.tray_icon:

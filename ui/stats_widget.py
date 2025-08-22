@@ -442,8 +442,8 @@ class StatsWidget(QWidget):
                 # 创建会话记录
                 session_id = self.database.start_session("study", planned_duration, start_time)
                 
-                # 结束会话
-                self.database.end_session(session_id, True, notes, actual_duration)
+                # 结束会话 - 使用用户填写的结束时间
+                self.database.end_session(session_id, True, notes, actual_duration, end_time)
                 
                 # 刷新数据
                 if hasattr(self, 'current_selected_date'):
