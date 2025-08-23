@@ -562,11 +562,8 @@ class MainWindow(QMainWindow):
                     
                     # 更新关联的TODO
                     if todo_id is not None:
-                        # 使用SQL直接更新，因为我们还没有专门的方法来更新todo_id
-                        conn = self.database._get_connection()
-                        cursor = conn.cursor()
-                        cursor.execute('UPDATE study_sessions SET todo_id = ? WHERE id = ?', (todo_id, session_id))
-                        conn.commit()
+                        # 使用数据库方法更新关联的TODO
+                        self.database.update_session_todo(session_id, todo_id)
                         self.logger.info(f"已关联TODO: 会话ID={session_id}, TODO ID={todo_id}")
                 except Exception as e:
                     self.logger.error(f"更新会话信息失败: {e}")

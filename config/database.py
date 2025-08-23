@@ -272,7 +272,8 @@ class Database:
             ''', params)
             
             results = cursor.fetchall()
-            return [dict(row) for row in results]
+            todo_items = [dict(row) for row in results]
+            return todo_items
             
         except Exception as e:
             self.logger.error(f"获取TODO项目失败: {e}")
@@ -391,18 +392,37 @@ class Database:
             cursor.execute("PRAGMA table_info(study_sessions)")
             columns = [column[1] for column in cursor.fetchall()]
             
-            if 'todo_id' in columns:
+            # 获取待办内容（如果有）
+            todo_content = ""
+            if todo_id:
+                cursor.execute('SELECT content FROM todo_items WHERE id = ?', (todo_id,))
+                result = cursor.fetchone()
+                if result:
+                    todo_content = result['content']
+            
+            # 检查是否存在todo_content字段
+            has_todo_content = 'todo_content' in columns
+            
+            if 'todo_id' in columns and has_todo_content:
                 cursor.execute('''
-                               INSERT INTO study_sessions (date, start_time, timer_type, planned_duration, todo_id)
-                               VALUES (?, ?, ?, ?, ?)
-                               ''', (today, start_time, timer_type, planned_duration, todo_id))
-            else:
-                # 添加todo_id字段
+                               INSERT INTO study_sessions (date, start_time, timer_type, planned_duration, todo_id, todo_content)
+                               VALUES (?, ?, ?, ?, ?, ?)
+                               ''', (today, start_time, timer_type, planned_duration, todo_id, todo_content))
+            elif 'todo_id' in columns and not has_todo_content:
+                # 添加todo_content字段
+                cursor.execute('ALTER TABLE study_sessions ADD COLUMN todo_content TEXT')
+                cursor.execute('''
+                               INSERT INTO study_sessions (date, start_time, timer_type, planned_duration, todo_id, todo_content)
+                               VALUES (?, ?, ?, ?, ?, ?)
+                               ''', (today, start_time, timer_type, planned_duration, todo_id, todo_content))
+            elif not 'todo_id' in columns:
+                # 添加todo_id和todo_content字段
                 cursor.execute('ALTER TABLE study_sessions ADD COLUMN todo_id INTEGER')
+                cursor.execute('ALTER TABLE study_sessions ADD COLUMN todo_content TEXT')
                 cursor.execute('''
-                               INSERT INTO study_sessions (date, start_time, timer_type, planned_duration, todo_id)
-                               VALUES (?, ?, ?, ?, ?)
-                               ''', (today, start_time, timer_type, planned_duration, todo_id))
+                               INSERT INTO study_sessions (date, start_time, timer_type, planned_duration, todo_id, todo_content)
+                               VALUES (?, ?, ?, ?, ?, ?)
+                               ''', (today, start_time, timer_type, planned_duration, todo_id, todo_content))
 
             session_id = cursor.lastrowid
             conn.commit()
@@ -494,6 +514,41 @@ class Database:
             self.logger.error(f"更新会话备注失败: {e}")
             raise
             
+    def update_session_todo(self, session_id: int, todo_id: int = None):
+        """
+        更新会话关联的TODO项目
+
+        Args:
+            session_id: 会话ID
+            todo_id: 关联的TODO项目ID，如果为None则取消关联
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # 获取待办内容（如果有）
+            todo_content = ""
+            if todo_id:
+                cursor.execute('SELECT content FROM todo_items WHERE id = ?', (todo_id,))
+                result = cursor.fetchone()
+                if result:
+                    todo_content = result['content']
+
+            # 更新会话关联的TODO和TODO内容
+            cursor.execute('''
+                           UPDATE study_sessions
+                           SET todo_id = ?, todo_content = ?
+                           WHERE id = ?
+                           ''', (todo_id, todo_content, session_id))
+
+            conn.commit()
+            self.logger.info(f"更新会话关联TODO: ID={session_id}, TODO ID={todo_id}, TODO内容={todo_content}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"更新会话关联TODO失败: {e}")
+            raise
+            
     def delete_session(self, session_id: int):
         """
         删除学习会话记录
@@ -551,15 +606,29 @@ class Database:
             columns = [column[1] for column in cursor.fetchall()]
             
             if 'todo_id' in columns:
-                cursor.execute('''
-                               SELECT s.id, s.date, s.start_time, s.end_time, s.timer_type, 
-                                      s.planned_duration, s.actual_duration, s.completed, s.notes, s.todo_id,
-                                      t.content as todo_content
-                               FROM study_sessions s
-                               LEFT JOIN todo_items t ON s.todo_id = t.id
-                               WHERE s.date = ? AND s.timer_type = 'study'
-                               ORDER BY s.start_time DESC
-                               ''', (target_date,))
+                # 检查表中是否存在todo_content字段
+                has_todo_content = 'todo_content' in columns
+                
+                if has_todo_content:
+                    # 直接使用表中的todo_content字段，不再通过连表查询
+                    cursor.execute('''
+                                   SELECT id, date, start_time, end_time, timer_type, 
+                                          planned_duration, actual_duration, completed, notes, todo_id, todo_content
+                                   FROM study_sessions
+                                   WHERE date = ? AND timer_type = 'study'
+                                   ORDER BY start_time DESC
+                                   ''', (target_date,))
+                else:
+                    # 如果没有todo_content字段，则通过连表查询获取
+                    cursor.execute('''
+                                   SELECT s.id, s.date, s.start_time, s.end_time, s.timer_type, 
+                                          s.planned_duration, s.actual_duration, s.completed, s.notes, s.todo_id,
+                                          t.content as todo_content
+                                   FROM study_sessions s
+                                   LEFT JOIN todo_items t ON s.todo_id = t.id
+                                   WHERE s.date = ? AND s.timer_type = 'study'
+                                   ORDER BY s.start_time DESC
+                                   ''', (target_date,))
             else:
                 cursor.execute('''
                                SELECT id, date, start_time, end_time, timer_type, 
@@ -590,9 +659,9 @@ class Database:
                     'notes': row['notes'] or ''
                 }
                 
-                # 添加TODO相关信息（如果存在）
-                if 'todo_id' in columns and 'todo_id' in row and row['todo_id']:
-                    session['todo_id'] = row['todo_id']
+                # 添加TODO相关信息（无论是否存在）
+                if 'todo_id' in columns:
+                    session['todo_id'] = row['todo_id'] if 'todo_id' in row else None
                     session['todo_content'] = row['todo_content'] if 'todo_content' in row else ''
                 
                 sessions.append(session)
@@ -772,14 +841,27 @@ class Database:
             where_clause = ' AND '.join(conditions) if conditions else '1=1'
             params.append(limit)
 
+            # 检查表中是否存在todo_content字段
+            has_todo_content = 'todo_content' in columns
+            
             if has_todo_id:
-                cursor.execute(f'''
-                    SELECT s.*, t.content as todo_content FROM study_sessions s
-                    LEFT JOIN todo_items t ON s.todo_id = t.id
-                    WHERE {where_clause}
-                    ORDER BY s.start_time DESC
-                    LIMIT ?
-                ''', params)
+                if has_todo_content:
+                    # 直接使用表中的todo_content字段，不再通过连表查询
+                    cursor.execute(f'''
+                        SELECT * FROM study_sessions
+                        WHERE {where_clause.replace('s.', '')}
+                        ORDER BY start_time DESC
+                        LIMIT ?
+                    ''', params)
+                else:
+                    # 如果没有todo_content字段，则通过连表查询获取
+                    cursor.execute(f'''
+                        SELECT s.*, t.content as todo_content FROM study_sessions s
+                        LEFT JOIN todo_items t ON s.todo_id = t.id
+                        WHERE {where_clause}
+                        ORDER BY s.start_time DESC
+                        LIMIT ?
+                    ''', params)
             else:
                 cursor.execute(f'''
                     SELECT * FROM study_sessions 

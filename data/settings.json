@@ -9,8 +9,8 @@
             624
         ],
         "window_position": [
-            240,
-            79
+            150,
+            107
         ],
         "close_tip_shown": true
     },
@@ -45,7 +45,7 @@
                 "icon": "timer"
             }
         ],
-        "current_type": "study",
+        "current_type": "rest",
         "auto_switch": true,
         "auto_start_next": true
     },

@@ -8,7 +8,7 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QTabWidget, QCalendarWidget, QTableWidget, 
                              QTableWidgetItem, QHeaderView, QSplitter)
-from PyQt5.QtCore import Qt, QDate, pyqtSignal
+from PyQt5.QtCore import Qt, QDate, pyqtSignal, QMargins
 from PyQt5.QtGui import QColor, QPalette, QPainter
 from PyQt5.QtChart import QChart, QChartView, QLineSeries, QDateTimeAxis, QValueAxis
 
@@ -44,6 +44,13 @@ class StatsWidget(QWidget):
     def refresh_data(self):
         """刷新统计数据"""
         self._load_data()
+        
+        # 如果有选中的日期，重新加载该日期的会话记录
+        if hasattr(self, 'current_selected_date') and self.current_selected_date:
+            qt_date = QDate(self.current_selected_date.year, 
+                           self.current_selected_date.month, 
+                           self.current_selected_date.day)
+            self._on_date_clicked(qt_date)
 
     def _build_ui(self):
         """构建界面"""
@@ -64,16 +71,25 @@ class StatsWidget(QWidget):
         chart_tab = QWidget()
         chart_layout = QVBoxLayout(chart_tab)
         
+        # 创建分割器，用于响应式布局
+        chart_splitter = QSplitter(Qt.Vertical)
+        
         # 创建折线图
         self.chart_view = self._create_chart()
-        chart_layout.addWidget(self.chart_view)
+        self.chart_view.setMinimumHeight(250)  # 设置最小高度
+        chart_splitter.addWidget(self.chart_view)
         
         # 创建表格
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(['日期', '学习时长(分钟)'])
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setMinimumHeight(200)
-        chart_layout.addWidget(self.table)
+        self.table.setMinimumHeight(150)  # 减小最小高度
+        self.table.setSizePolicy(self.table.sizePolicy().horizontalPolicy(), self.table.sizePolicy().Expanding)
+        chart_splitter.addWidget(self.table)
+        
+        # 设置分割器比例 (图表:表格 = 2:1)
+        chart_splitter.setSizes([400, 200])
+        chart_layout.addWidget(chart_splitter)
         
         # 添加图表选项卡
         self.tab_widget.addTab(chart_tab, "趋势图")
@@ -82,19 +98,30 @@ class StatsWidget(QWidget):
         calendar_tab = QWidget()
         calendar_layout = QVBoxLayout(calendar_tab)
         
+        # 创建上部分割器，用于日历和详情
+        top_splitter = QSplitter(Qt.Horizontal)
+        
         # 创建日历
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self.calendar.setHorizontalHeaderFormat(QCalendarWidget.SingleLetterDayNames)
         self.calendar.clicked.connect(self._on_date_clicked)
-        calendar_layout.addWidget(self.calendar)
+        self.calendar.setMinimumSize(300, 250)  # 设置最小尺寸
+        top_splitter.addWidget(self.calendar)
         
         # 日期详情
         self.date_details = QLabel("选择日期查看详情")
         self.date_details.setAlignment(Qt.AlignCenter)
         self.date_details.setMinimumHeight(100)
-        calendar_layout.addWidget(self.date_details)
+        self.date_details.setMinimumWidth(200)
+        self.date_details.setWordWrap(True)  # 允许文本换行
+        self.date_details.setStyleSheet("QLabel { padding: 10px; border: 1px solid #ccc; border-radius: 5px; background-color: #f9f9f9; }")
+        top_splitter.addWidget(self.date_details)
+        
+        # 设置上部分割器比例
+        top_splitter.setSizes([400, 300])
+        calendar_layout.addWidget(top_splitter)
         
         # 添加记录按钮
         from PyQt5.QtWidgets import QPushButton
@@ -121,12 +148,26 @@ class StatsWidget(QWidget):
         # 创建学习记录表格
         self.sessions_table = QTableWidget(0, 7)  # 增加一列用于TODO关联
         self.sessions_table.setHorizontalHeaderLabels(['ID', '开始时间', '结束时间', '时长(分钟)', '备注', '关联待办', '操作'])
-        self.sessions_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)  # 备注列自适应宽度
-        self.sessions_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)  # 关联待办列自适应宽度
-        self.sessions_table.setMinimumHeight(200)
+        
+        # 设置列宽自适应
+        header = self.sessions_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # ID列
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 开始时间列
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 结束时间列
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # 时长列
+        header.setSectionResizeMode(4, QHeaderView.Stretch)  # 备注列自适应宽度
+        header.setSectionResizeMode(5, QHeaderView.Stretch)  # 关联待办列自适应宽度
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # 操作列
+        
+        self.sessions_table.setMinimumHeight(150)  # 减小最小高度
         self.sessions_table.setAlternatingRowColors(True)
         self.sessions_table.setEditTriggers(QTableWidget.NoEditTriggers)  # 默认不可编辑
         self.sessions_table.cellDoubleClicked.connect(self._on_session_cell_double_clicked)  # 双击事件
+        
+        # 设置表格的水平滚动策略
+        self.sessions_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.sessions_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
         calendar_layout.addWidget(self.sessions_table)
         
         # 添加日历选项卡
@@ -217,7 +258,11 @@ class StatsWidget(QWidget):
         
         # 创建图表视图
         chart_view = QChartView(chart)
-        chart_view.setMinimumHeight(300)
+        chart_view.setMinimumHeight(200)  # 减小最小高度以适应小窗口
+        chart_view.setMinimumWidth(300)   # 设置最小宽度
+        
+        # 设置图表的边距，在小窗口下减少边距
+        chart.setMargins(QMargins(10, 10, 10, 10))
         
         return chart_view
 
@@ -682,11 +727,8 @@ class StatsWidget(QWidget):
             todo_id = todo_combo.currentData()
             
             try:
-                # 使用SQL直接更新，因为我们还没有专门的方法来更新todo_id
-                conn = self.database._get_connection()
-                cursor = conn.cursor()
-                cursor.execute('UPDATE study_sessions SET todo_id = ? WHERE id = ?', (todo_id, session_id))
-                conn.commit()
+                # 使用数据库方法更新关联的TODO
+                self.database.update_session_todo(session_id, todo_id)
                 
                 # 更新表格显示
                 new_todo_content = todo_combo.currentText() if todo_id is not None else ""

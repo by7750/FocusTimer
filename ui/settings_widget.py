@@ -162,6 +162,36 @@ class SettingsWidget(QWidget):
         data_export_layout.addLayout(export_buttons_layout)
         data_layout.addWidget(data_export_group)
         
+        # 数据导入组
+        data_import_group = QGroupBox("数据导入")
+        data_import_layout = QVBoxLayout(data_import_group)
+        
+        data_import_label = QLabel("从文件导入学习记录数据，支持JSON、Excel、SQL格式：")
+        data_import_layout.addWidget(data_import_label)
+        
+        import_buttons_layout = QHBoxLayout()
+        
+        # JSON导入按钮
+        json_import_btn = QPushButton("导入JSON文件")
+        json_import_btn.setIcon(QIcon.fromTheme("document-open"))
+        json_import_btn.clicked.connect(lambda: self._import_data("json"))
+        import_buttons_layout.addWidget(json_import_btn)
+        
+        # SQL导入按钮
+        sql_import_btn = QPushButton("导入SQL脚本")
+        sql_import_btn.setIcon(QIcon.fromTheme("text-x-script"))
+        sql_import_btn.clicked.connect(lambda: self._import_data("sql"))
+        import_buttons_layout.addWidget(sql_import_btn)
+        
+        # Excel导入按钮
+        excel_import_btn = QPushButton("导入Excel文件")
+        excel_import_btn.setIcon(QIcon.fromTheme("x-office-spreadsheet"))
+        excel_import_btn.clicked.connect(lambda: self._import_data("excel"))
+        import_buttons_layout.addWidget(excel_import_btn)
+        
+        data_import_layout.addLayout(import_buttons_layout)
+        data_layout.addWidget(data_import_group)
+        
         # 创建提醒设置选项卡
         notification_tab = QWidget()
         notification_layout = QVBoxLayout(notification_tab)

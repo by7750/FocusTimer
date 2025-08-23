@@ -417,8 +417,17 @@ class TimerWidget(QWidget):
         width = self.width()
         height = self.height()
         center_x = width / 2
-        center_y = height / 2
-        radius = min(width, height) / 2 - 60  # 留出边距，考虑到按钮区域
+        
+        # 为按钮区域预留更多空间，按钮区域大约需要120像素高度
+        button_area_height = 120
+        available_height = height - button_area_height
+        center_y = available_height / 2 + 40  # 向上偏移一点，留出顶部空间
+        
+        # 计算半径，确保圆圈不会被按钮覆盖
+        max_radius_by_width = width / 2 - 40  # 左右边距
+        max_radius_by_height = available_height / 2 - 40  # 上下边距
+        radius = min(max_radius_by_width, max_radius_by_height)
+        radius = max(radius, 80)  # 确保最小半径
         
         # 绘制背景
         painter.fillRect(event.rect(), self.background_color)
@@ -477,7 +486,7 @@ class TimerWidget(QWidget):
         
     def sizeHint(self) -> QSize:
         """推荐尺寸"""
-        return QSize(400, 500)
+        return QSize(400, 450)
         
     def update_settings(self):
         """更新设置"""
