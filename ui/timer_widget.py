@@ -596,8 +596,13 @@ class TimerWidget(QWidget):
             # 如果正在播放，则暂停
             self.pause_music()
         else:
-            # 如果未播放，则开始播放
-            self.play_music()
+            # 如果未播放，则开始播放或恢复播放
+            if self.current_music_file and os.path.exists(self.current_music_file):
+                # 如果有音乐文件且存在，则恢复播放
+                self.unpause_music()
+            else:
+                # 否则开始播放
+                self.play_music()
     
     def update_play_music_button_icon(self):
         """更新播放/暂停音乐按钮图标"""
@@ -647,10 +652,20 @@ class TimerWidget(QWidget):
         if not self.audio_manager or not self.is_music_playing:
             return
             
-        self.audio_manager.stop_sound()
+        self.audio_manager.pause_sound()
         self.is_music_playing = False
         self.update_play_music_button_icon()
         self.logger.info("暂停音乐播放")
+        
+    def unpause_music(self):
+        """恢复音乐播放"""
+        if not self.audio_manager or self.is_music_playing:
+            return
+            
+        self.audio_manager.unpause_sound()
+        self.is_music_playing = True
+        self.update_play_music_button_icon()
+        self.logger.info("恢复音乐播放")
         
     def stop_music(self):
         """停止音乐"""

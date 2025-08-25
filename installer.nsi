@@ -38,7 +38,6 @@
                     File "resources\icons\music_pause.png"
                     File "resources\icons\music_play.png"
                     File "resources\icons\music_stop.png"
-                    File "resources\icons\tiemr_stop.png"
                     File "resources\icons\timer_change.png"
                     File "resources\icons\timer_pause.png"
                     File "resources\icons\timer_reset.png"

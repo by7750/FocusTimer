@@ -178,3 +178,49 @@ class AudioManager:
                 
         # 否则返回内部状态
         return self.is_playing
+    
+    def pause_sound(self):
+        """暂停当前播放的音频"""
+        if not self.is_playing:
+            return
+            
+        try:
+            # 暂停pygame音乐播放（如果可用）
+            if self.pygame_available:
+                try:
+                    import pygame
+                    if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+                        pygame.mixer.music.pause()
+                        self.logger.info("pygame音频播放已暂停")
+                        return  # 成功暂停，直接返回
+                except (ImportError, AttributeError) as e:
+                    self.logger.error(f"暂停pygame音频失败: {e}")
+            
+            # 对于winsound或其他后端，使用停止功能
+            self.stop_sound()
+            self.logger.info("音频播放已暂停")
+        except Exception as e:
+            self.logger.error(f"暂停音频失败: {e}")
+    
+    def unpause_sound(self):
+        """恢复暂停的音频播放"""
+        if not self.is_playing:
+            return
+            
+        try:
+            # 恢复pygame音乐播放（如果可用）
+            if self.pygame_available:
+                try:
+                    import pygame
+                    if pygame.mixer.get_init():
+                        pygame.mixer.music.unpause()
+                        self.logger.info("pygame音频播放已恢复")
+                        return  # 成功恢复，直接返回
+                except (ImportError, AttributeError) as e:
+                    self.logger.error(f"恢复pygame音频失败: {e}")
+            
+            # 对于winsound或其他后端，可能需要重新开始播放
+            # 这里我们简单地记录日志，因为winsound不支持真正的暂停/恢复
+            self.logger.info("音频播放已恢复")
+        except Exception as e:
+            self.logger.error(f"恢复音频失败: {e}")

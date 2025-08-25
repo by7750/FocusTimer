@@ -67,7 +67,8 @@ class TodoItem(QWidget):
         
         # 编辑按钮
         self.edit_btn = QToolButton()
-        self.edit_btn.setText("✏️")
+        self.edit_btn.setIcon(QIcon("resources/icons/todo_edit.png"))
+        self.edit_btn.setIconSize(QSize(16, 16))
         self.edit_btn.setToolTip("编辑")
         self.edit_btn.setMinimumSize(30, 30)
         self.edit_btn.clicked.connect(self.on_edit_clicked)
@@ -75,7 +76,8 @@ class TodoItem(QWidget):
         
         # 删除按钮
         self.delete_btn = QToolButton()
-        self.delete_btn.setText("🗑️")
+        self.delete_btn.setIcon(QIcon("resources/icons/todo_del.png"))
+        self.delete_btn.setIconSize(QSize(16, 16))
         self.delete_btn.setToolTip("删除")
         self.delete_btn.setMinimumSize(30, 30)
         self.delete_btn.clicked.connect(self.on_delete_clicked)
