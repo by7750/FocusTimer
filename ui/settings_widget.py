@@ -11,12 +11,13 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QListWidget, QListWidgetItem, QGroupBox, QDialog,
                              QDialogButtonBox, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QPixmap
 
 import os
 import logging
 import json
 import sqlite3
+import shutil
 from typing import Dict, List, Optional
 from datetime import datetime, date
 
@@ -248,10 +249,64 @@ class SettingsWidget(QWidget):
         # 添加数据管理选项卡
         self.tab_widget.addTab(data_tab, "数据管理")
         
+        # 创建背景设置选项卡
+        background_tab = QWidget()
+        background_layout = QVBoxLayout(background_tab)
+        
+        # 背景图片设置
+        background_group = QGroupBox("背景图片")
+        background_layout.addWidget(background_group)
+        
+        background_group_layout = QVBoxLayout(background_group)
+        
+        # 背景图片选择布局
+        background_file_layout = QHBoxLayout()
+        self.background_file_combo = QComboBox()
+        self.background_file_combo.setEditable(False)
+        background_file_layout.addWidget(self.background_file_combo)
+        
+        self.import_background_btn = QPushButton("导入壁纸")
+        self.import_background_btn.clicked.connect(self._import_wallpaper)
+        background_file_layout.addWidget(self.import_background_btn)
+        
+        background_group_layout.addLayout(background_file_layout)
+        
+        # 背景显示模式
+        background_mode_layout = QHBoxLayout()
+        background_mode_layout.addWidget(QLabel("显示模式:"))
+        
+        self.background_mode_combo = QComboBox()
+        self.background_mode_combo.addItems(["拉伸填充", "适应窗口", "平铺", "填充窗口"])
+        self.background_mode_combo.setCurrentText("拉伸填充")
+        background_mode_layout.addWidget(self.background_mode_combo)
+        
+        background_mode_layout.addStretch()
+        background_group_layout.addLayout(background_mode_layout)
+        
+        # 预览区域
+        preview_group = QGroupBox("预览")
+        preview_layout = QVBoxLayout(preview_group)
+        
+        # 创建一个用于显示壁纸预览的标签
+        self.background_preview = QLabel()
+        self.background_preview.setMinimumSize(200, 150)
+        self.background_preview.setAlignment(Qt.AlignCenter)
+        self.background_preview.setStyleSheet("border: 1px solid #ccc; background-color: #f0f0f0;")
+        self.background_preview.setScaledContents(False)  # 不自动缩放
+        preview_layout.addWidget(self.background_preview)
+        
+        # 连接壁纸选择和模式选择的变化信号到预览更新函数
+        self.background_file_combo.currentTextChanged.connect(self._update_background_preview)
+        self.background_mode_combo.currentTextChanged.connect(self._update_background_preview)
+        
+        background_layout.addWidget(preview_group)
+        
+        # 添加背景选项卡
+        self.tab_widget.addTab(background_tab, "背景")
+        
         # 底部按钮
         buttons_layout = QHBoxLayout()
         buttons_layout.addStretch()
-        
         self.reset_btn = QPushButton("重置为默认")
         self.reset_btn.clicked.connect(self._reset_settings)
         buttons_layout.addWidget(self.reset_btn)
@@ -333,18 +388,30 @@ class SettingsWidget(QWidget):
             show_main_window = self.settings.get('notification.show_main_window', True)
             self.show_main_window_check.setChecked(show_main_window)
             
+            # 加载背景图片设置
+            self._load_background_files()
+            
+            # 设置当前选中的背景图片
+            background_image = self.settings.get('ui.background_image', '')
+            if background_image and os.path.exists(background_image):
+                filename = os.path.basename(background_image)
+                index = self.background_file_combo.findText(filename)
+                if index >= 0:
+                    self.background_file_combo.setCurrentIndex(index)
+            
+            # 设置背景显示模式
+            background_mode = self.settings.get('ui.background_mode', 'stretch')
+            mode_map = {'stretch': '拉伸填充', 'fit': '适应窗口', 'tile': '平铺', 'fill': '填充窗口'}
+            mode_text = mode_map.get(background_mode, '拉伸填充')
+            index = self.background_mode_combo.findText(mode_text)
+            if index >= 0:
+                self.background_mode_combo.setCurrentIndex(index)
+            
+            # 更新背景预览
+            self._update_background_preview()
+            
         except Exception as e:
             self.logger.error(f"加载设置失败: {e}")
-    
-    def _load_timer_types(self):
-        """加载计时器类型"""
-        self.timer_list.clear()
-        
-        timer_types = self.settings.get_timer_types()
-        for timer_type in timer_types:
-            item = QListWidgetItem(f"{timer_type['name']} ({timer_type['duration'] // 60} 分钟)")
-            item.setData(Qt.UserRole, timer_type)
-            self.timer_list.addItem(item)
     
     def _save_settings(self):
         """保存设置"""
@@ -368,6 +435,22 @@ class SettingsWidget(QWidget):
             # 保存弹窗提醒设置
             self.settings.set('notification.popup.enabled', self.popup_enabled_check.isChecked())
             self.settings.set('notification.show_main_window', self.show_main_window_check.isChecked())
+            
+            # 保存背景图片设置
+            selected_background = self.background_file_combo.currentText()
+            if selected_background:
+                # 构建完整文件路径
+                wallpaper_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "wallpaper")
+                full_path = os.path.join(wallpaper_dir, selected_background)
+                self.settings.set('ui.background_image', full_path)
+            else:
+                self.settings.set('ui.background_image', '')
+            
+            # 保存背景显示模式
+            mode_text = self.background_mode_combo.currentText()
+            mode_map = {'拉伸填充': 'stretch', '适应窗口': 'fit', '平铺': 'tile', '填充窗口': 'fill'}
+            mode_value = mode_map.get(mode_text, 'stretch')
+            self.settings.set('ui.background_mode', mode_value)
             
             # 保存设置到文件
             self.settings.save()
@@ -849,6 +932,61 @@ class SettingsWidget(QWidget):
                 self.logger.error(f"导入音频文件失败: {e}")
                 QMessageBox.critical(self, "导入失败", f"导入音频文件失败: {str(e)}")
     
+    def _import_wallpaper(self):
+        """导入壁纸文件"""
+        try:
+            # 打开文件选择对话框
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "选择壁纸文件",
+                "",
+                "图片文件 (*.png *.jpg *.jpeg *.bmp *.gif)"
+            )
+            
+            if file_path:
+                # 获取文件名
+                filename = os.path.basename(file_path)
+                
+                # 获取壁纸目录路径
+                wallpaper_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "wallpaper")
+                
+                # 如果目录不存在则创建
+                if not os.path.exists(wallpaper_dir):
+                    os.makedirs(wallpaper_dir)
+                
+                # 目标文件路径
+                target_path = os.path.join(wallpaper_dir, filename)
+                
+                # 如果文件已存在，询问是否覆盖
+                if os.path.exists(target_path):
+                    reply = QMessageBox.question(
+                        self,
+                        "文件已存在",
+                        f"文件 {filename} 已存在，是否覆盖？",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    
+                    if reply == QMessageBox.No:
+                        return
+                
+                # 复制文件到壁纸目录
+                shutil.copy2(file_path, target_path)
+                
+                # 重新加载壁纸文件列表
+                self._load_background_files()
+                
+                # 设置当前选中的壁纸
+                index = self.background_file_combo.findText(filename)
+                if index >= 0:
+                    self.background_file_combo.setCurrentIndex(index)
+                
+                QMessageBox.information(self, "导入成功", f"壁纸 {filename} 导入成功")
+                
+        except Exception as e:
+            self.logger.error(f"导入壁纸文件失败: {e}")
+            QMessageBox.critical(self, "导入失败", f"导入壁纸文件失败: {e}")
+    
     def _load_sound_files(self):
         """加载音频文件列表"""
         try:
@@ -874,3 +1012,96 @@ class SettingsWidget(QWidget):
             
         except Exception as e:
             self.logger.error(f"加载音频文件列表失败: {e}")
+
+    def _load_background_files(self):
+        """加载壁纸文件列表"""
+        self.background_file_combo.clear()
+        self.background_file_combo.addItem("无")
+        
+        # 获取壁纸目录路径
+        wallpaper_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "wallpaper")
+        
+        # 如果目录不存在则创建
+        if not os.path.exists(wallpaper_dir):
+            os.makedirs(wallpaper_dir)
+        
+        # 支持的图片格式
+        image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
+        
+        # 遍历壁纸目录中的文件
+        if os.path.exists(wallpaper_dir):
+            for filename in os.listdir(wallpaper_dir):
+                if filename.lower().endswith(image_extensions):
+                    self.background_file_combo.addItem(filename)
+
+    def _load_timer_types(self):
+        """加载计时器类型"""
+        # 清空列表
+        self.timer_list.clear()
+        
+        # 获取计时器类型列表
+        timer_types = self.settings.get_timer_types()
+        
+        # 添加到列表中
+        for timer_type in timer_types:
+            item = QListWidgetItem(timer_type["name"])
+            item.setData(Qt.UserRole, timer_type)
+            self.timer_list.addItem(item)
+
+    def _update_background_preview(self):
+        """更新背景预览"""
+        try:
+            # 获取选中的壁纸文件
+            selected_file = self.background_file_combo.currentText()
+            
+            if not selected_file or selected_file == "无":
+                # 如果没有选择壁纸，显示默认背景
+                self.background_preview.clear()
+                self.background_preview.setText("背景预览区域")
+                return
+            
+            # 构建完整文件路径
+            wallpaper_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "wallpaper")
+            full_path = os.path.join(wallpaper_dir, selected_file)
+            
+            # 检查文件是否存在
+            if not os.path.exists(full_path):
+                self.background_preview.clear()
+                self.background_preview.setText("壁纸文件不存在")
+                return
+            
+            # 加载图片
+            pixmap = QPixmap(full_path)
+            if pixmap.isNull():
+                self.background_preview.clear()
+                self.background_preview.setText("无法加载壁纸")
+                return
+            
+            # 获取预览区域大小
+            preview_size = self.background_preview.size()
+            
+            # 根据显示模式调整图片
+            mode_text = self.background_mode_combo.currentText()
+            if mode_text == "拉伸填充":
+                # 拉伸填充
+                scaled_pixmap = pixmap.scaled(preview_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+            elif mode_text == "适应窗口":
+                # 适应窗口（保持宽高比）
+                scaled_pixmap = pixmap.scaled(preview_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            elif mode_text == "填充窗口":
+                # 填充窗口（保持宽高比，可能裁剪图片）
+                scaled_pixmap = pixmap.scaled(preview_size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            elif mode_text == "平铺":
+                # 平铺模式在预览中显示为适应窗口
+                scaled_pixmap = pixmap.scaled(preview_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            else:
+                # 默认拉伸填充
+                scaled_pixmap = pixmap.scaled(preview_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+            
+            # 设置预览图片
+            self.background_preview.setPixmap(scaled_pixmap)
+            
+        except Exception as e:
+            self.logger.error(f"更新背景预览失败: {e}")
+            self.background_preview.clear()
+            self.background_preview.setText("预览加载失败")

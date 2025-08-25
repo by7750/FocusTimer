@@ -87,7 +87,9 @@ class Settings:
                 "progress_style": "circle",  # circle 或 linear
                 "animation_enabled": True,
                 "font_size": 12,
-                "opacity": 1.0
+                "opacity": 1.0,
+                "background_image": "",  # 背景图片路径
+                "background_mode": "stretch"  # 背景图片显示模式: stretch, fit, tile
             }
         }
 

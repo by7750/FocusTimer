@@ -58,7 +58,7 @@
         "desktop_notification": true,
         "sound": {
             "enabled": true,
-            "file": "E:\\code\\Python\\timer\\resources\\sounds\\童话镇-陈一发儿.mp3"
+            "file": "E:\\code\\Python\\timer\\resources\\sounds\\default_alarm.wav"
         },
         "popup": {
             "enabled": true
@@ -76,6 +76,9 @@
         "progress_style": "circle",
         "animation_enabled": true,
         "font_size": 12,
-        "opacity": 1.0
+        "opacity": 1.0,
+        "background_image": "E:\\code\\Python\\timer\\resources\\wallpaper\\【哲风壁纸】室内-时尚-毛衣.png",
+        "background_mode": "fill",
+        "motto": "一寸光阴一寸金，寸金难买寸光阴。"
     }
 }

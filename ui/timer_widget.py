@@ -7,7 +7,7 @@
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QMenu, QAction
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QRectF, QSize, QPoint
-from PyQt5.QtGui import QPainter, QPen, QColor, QFont, QPainterPath, QIcon
+from PyQt5.QtGui import QPainter, QPen, QColor, QFont, QPainterPath, QIcon, QPixmap
 
 import logging
 import os
@@ -497,8 +497,38 @@ class TimerWidget(QWidget):
         radius = min(max_radius_by_width, max_radius_by_height)
         radius = max(radius, 60)  # 确保最小半径为原来的3/4 (80 * 3/4 = 60)
         
-        # 绘制背景
-        painter.fillRect(event.rect(), self.background_color)
+        # 绘制背景图片或背景色
+        background_image = self.settings.get('ui.background_image', '')
+        if background_image and os.path.exists(background_image):
+            # 加载背景图片
+            pixmap = QPixmap(background_image)
+            if not pixmap.isNull():
+                # 根据设置的显示模式绘制背景图片
+                background_mode = self.settings.get('ui.background_mode', 'stretch')
+                if background_mode == 'stretch':
+                    # 拉伸填充
+                    painter.drawPixmap(self.rect(), pixmap)
+                elif background_mode == 'fit':
+                    # 适应窗口（保持宽高比）
+                    scaled_pixmap = pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    x = (self.width() - scaled_pixmap.width()) // 2
+                    y = (self.height() - scaled_pixmap.height()) // 2
+                    painter.drawPixmap(x, y, scaled_pixmap)
+                elif background_mode == 'fill':
+                    # 填充窗口（保持宽高比，可能裁剪图片）
+                    scaled_pixmap = pixmap.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    x = (self.width() - scaled_pixmap.width()) // 2
+                    y = (self.height() - scaled_pixmap.height()) // 2
+                    painter.drawPixmap(x, y, scaled_pixmap)
+                elif background_mode == 'tile':
+                    # 平铺
+                    painter.drawTiledPixmap(self.rect(), pixmap)
+            else:
+                # 如果图片加载失败，绘制背景色
+                painter.fillRect(event.rect(), self.background_color)
+        else:
+            # 绘制背景色
+            painter.fillRect(event.rect(), self.background_color)
         
         # 绘制外圆环
         pen = QPen(self.ring_color)
