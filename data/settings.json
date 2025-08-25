@@ -45,7 +45,7 @@
                 "icon": "timer"
             }
         ],
-        "current_type": "1",
+        "current_type": "study",
         "auto_switch": true,
         "auto_start_next": true
     },
@@ -58,7 +58,7 @@
         "desktop_notification": true,
         "sound": {
             "enabled": true,
-            "file": "E:\\code\\Python\\timer\\resources\\sounds\\default_alarm.wav"
+            "file": "E:\\code\\Python\\timer\\resources\\sounds\\童话镇-陈一发儿.mp3"
         },
         "popup": {
             "enabled": true

@@ -36,11 +36,17 @@ class FocusTimerApp:
     def setup_logging(self):
         """设置日志系统"""
         log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        
+        # 创建日志目录（使用用户目录避免权限问题）
+        log_dir = os.path.join(os.path.expanduser('~'), '.focus_timer', 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, 'focus_timer.log')
+        
         logging.basicConfig(
             level=logging.DEBUG,
             format=log_format,
             handlers=[
-                logging.FileHandler('focus_timer.log', encoding='utf-8'),
+                logging.FileHandler(log_file, encoding='utf-8'),
                 logging.StreamHandler(sys.stdout)
             ]
         )
