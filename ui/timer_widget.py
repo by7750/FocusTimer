@@ -5,8 +5,8 @@
 负责显示圆形倒计时进度
 """
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QRectF, QSize
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QMenu, QAction
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QRectF, QSize, QPoint
 from PyQt5.QtGui import QPainter, QPen, QColor, QFont, QPainterPath, QIcon
 
 import logging
@@ -62,6 +62,10 @@ class TimerWidget(QWidget):
         # 构建UI
         self._build_ui()
         
+        # 初始化按钮图标
+        self.update_start_pause_button_icon()
+        self.update_play_music_button_icon()
+        
         # 加载计时器类型
         self._load_timer_types()
         
@@ -72,12 +76,14 @@ class TimerWidget(QWidget):
         """构建UI"""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(10)
         
-        # 计时器类型选择下拉框
-        self.timer_type_combo = QComboBox()
-        self.timer_type_combo.setMinimumHeight(30)
-        self.timer_type_combo.currentIndexChanged.connect(self._on_timer_type_changed)
-        main_layout.addWidget(self.timer_type_combo)
+        # 计时器类型切换按钮
+        self.timer_type_button = QPushButton()
+        self.timer_type_button.setFixedSize(50, 50)
+        self.timer_type_button.clicked.connect(self._on_timer_type_button_clicked)
+        # 将按钮放置在左上角
+        main_layout.addWidget(self.timer_type_button, alignment=Qt.AlignLeft | Qt.AlignTop)
         
         # 添加空白区域，让计时器显示在中间
         main_layout.addStretch(1)
@@ -85,47 +91,57 @@ class TimerWidget(QWidget):
         # 计时器控制按钮区域
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
+        button_layout.setAlignment(Qt.AlignCenter)
+        
+        # 重置按钮
+        self.reset_button = QPushButton()
+        self.reset_button.setFixedSize(50, 50)
+        self.reset_button.clicked.connect(self._on_reset_clicked)
+        button_layout.addWidget(self.reset_button)
         
         # 开始/暂停按钮
-        self.start_pause_button = QPushButton("开始")
-        self.start_pause_button.setMinimumSize(80, 40)
+        self.start_pause_button = QPushButton()
+        self.start_pause_button.setFixedSize(60, 60)
         self.start_pause_button.clicked.connect(self._on_start_pause_clicked)
         button_layout.addWidget(self.start_pause_button)
         
         # 停止按钮
-        self.stop_button = QPushButton("停止")
-        self.stop_button.setMinimumSize(80, 40)
+        self.stop_button = QPushButton()
+        self.stop_button.setFixedSize(50, 50)
         self.stop_button.clicked.connect(self._on_stop_clicked)
         self.stop_button.setEnabled(False)
         button_layout.addWidget(self.stop_button)
         
-        # 重置按钮
-        self.reset_button = QPushButton("重置")
-        self.reset_button.setMinimumSize(80, 40)
-        self.reset_button.clicked.connect(self._on_reset_clicked)
-        button_layout.addWidget(self.reset_button)
+        # 创建一个包含按钮布局的widget，用于实现垂直偏移
+        button_container = QWidget()
+        container_layout = QVBoxLayout(button_container)
+        container_layout.setContentsMargins(0, 60, 0, 0)  # 向下偏移60像素（最大按钮高度）
+        container_layout.addLayout(button_layout)
         
-        main_layout.addStretch(1)
-        main_layout.addLayout(button_layout)
+        main_layout.addWidget(button_container)
         
         # 音乐控制按钮区域
         music_layout = QHBoxLayout()
         music_layout.setSpacing(10)
         
         # 播放/暂停音乐按钮
-        self.play_music_button = QPushButton("播放音乐")
-        self.play_music_button.setMinimumSize(80, 40)
+        self.play_music_button = QPushButton()
+        self.play_music_button.setFixedSize(50, 50)
         self.play_music_button.clicked.connect(self._on_play_music_clicked)
         music_layout.addWidget(self.play_music_button)
         
         # 停止音乐按钮
-        self.stop_music_button = QPushButton("停止音乐")
-        self.stop_music_button.setMinimumSize(80, 40)
+        self.stop_music_button = QPushButton()
+        self.stop_music_button.setFixedSize(50, 50)
         self.stop_music_button.clicked.connect(self._on_stop_music_clicked)
         self.stop_music_button.setEnabled(False)
+        music_layout.addStretch(1)
         music_layout.addWidget(self.stop_music_button)
         
         main_layout.addLayout(music_layout)
+        
+        # 设置图标
+        self._setup_icons()
         
         # 设置样式
         self._setup_styles()
@@ -134,48 +150,56 @@ class TimerWidget(QWidget):
         """设置样式"""
         self.setStyleSheet("""
             QPushButton {
-                background-color: #f0f0f0;
-                border: 1px solid #ccc;
-                border-radius: 5px;
+                background-color: transparent;
+                border: none;
+                border-radius: 25px;
                 padding: 5px;
-                font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #e0e0e0;
+                background-color: rgba(224, 224, 224, 0.3);
             }
             QPushButton:pressed {
-                background-color: #d0d0d0;
+                background-color: rgba(208, 208, 208, 0.5);
             }
             QPushButton:disabled {
-                background-color: #f8f8f8;
+                background-color: transparent;
                 color: #aaa;
-            }
-            QComboBox {
-                border: 1px solid #ccc;
-                border-radius: 5px;
-                padding: 5px;
-                font-size: 14px;
             }
         """)
     
+    def _setup_icons(self):
+        """设置按钮图标"""
+        # 设置计时器控制按钮图标
+        self.reset_button.setIcon(QIcon("resources/icons/timer_reset.png"))
+        self.reset_button.setIconSize(QSize(15, 15))
+        
+        self.start_pause_button.setIcon(QIcon("resources/icons/timer_start.png"))
+        self.start_pause_button.setIconSize(QSize(20, 20))
+        
+        self.stop_button.setIcon(QIcon("resources/icons/timer_stop.png"))
+        self.stop_button.setIconSize(QSize(15, 15))
+        
+        # 设置音乐控制按钮图标
+        self.play_music_button.setIcon(QIcon("resources/icons/music_play.png"))
+        self.play_music_button.setIconSize(QSize(15, 15))
+        
+        self.stop_music_button.setIcon(QIcon("resources/icons/music_stop.png"))
+        self.stop_music_button.setIconSize(QSize(15, 15))
+        
+        # 设置计时器类型切换按钮图标
+        self.timer_type_button.setIcon(QIcon("resources/icons/timer_change.png"))
+        self.timer_type_button.setIconSize(QSize(20, 20))
+    
     def _load_timer_types(self):
         """加载计时器类型"""
-        self.timer_type_combo.clear()
-        timer_types = self.settings.get_timer_types()
-        
-        for timer_type in timer_types:
-            self.timer_type_combo.addItem(timer_type.get('name'), timer_type.get('id'))
+        # 不再需要清除下拉框
+        # 为按钮菜单准备数据
+        pass
     
     def _load_current_timer_type(self):
         """加载当前计时器类型"""
         current_type = self.settings.get_current_timer_type()
         current_id = current_type.get('id', 'study')
-        
-        # 设置下拉框选中项
-        for i in range(self.timer_type_combo.count()):
-            if self.timer_type_combo.itemData(i) == current_id:
-                self.timer_type_combo.setCurrentIndex(i)
-                break
         
         # 设置计时器时间
         self.set_timer_type(current_id)
@@ -190,19 +214,17 @@ class TimerWidget(QWidget):
             self.progress_color = QColor(timer_type.get('color', '#4CAF50'))
             self.update()
     
-    def _on_timer_type_changed(self, index: int):
+    def _on_timer_type_changed(self, type_id: str):
         """计时器类型变更处理"""
-        if index >= 0:
-            type_id = self.timer_type_combo.itemData(index)
-            self.set_timer_type(type_id)
-            self.settings.set_current_timer_type(type_id)
-            
-            # 确保切换计时器类型后，计时器处于停止状态
-            self.is_running = False
-            self.is_paused = False
-            self.timer.stop()
-            self.start_pause_button.setText("开始")
-            self.stop_button.setEnabled(False)
+        self.set_timer_type(type_id)
+        self.settings.set_current_timer_type(type_id)
+        
+        # 确保切换计时器类型后，计时器处于停止状态
+        self.is_running = False
+        self.is_paused = False
+        self.timer.stop()
+        self.update_start_pause_button_icon()
+        self.stop_button.setEnabled(False)
     
     def _on_start_pause_clicked(self):
         """开始/暂停按钮点击处理"""
@@ -211,6 +233,13 @@ class TimerWidget(QWidget):
         else:
             self.start_timer()
     
+    def update_start_pause_button_icon(self):
+        """更新开始/暂停按钮图标"""
+        if self.is_running:
+            self.start_pause_button.setIcon(QIcon("resources/icons/timer_pause.png"))
+        else:
+            self.start_pause_button.setIcon(QIcon("resources/icons/timer_start.png"))
+    
     def _on_stop_clicked(self):
         """停止按钮点击处理"""
         self.stop_timer()
@@ -218,6 +247,52 @@ class TimerWidget(QWidget):
     def _on_reset_clicked(self):
         """重置按钮点击处理"""
         self.reset_timer()
+    
+    def _on_timer_type_button_clicked(self):
+        """计时器类型按钮点击处理"""
+        # 创建菜单
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: white;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                padding: 5px 0px;
+            }
+            QMenu::item {
+                padding: 8px 20px;
+                background-color: transparent;
+            }
+            QMenu::item:selected {
+                background-color: #e0e0e0;
+            }
+        """)
+        
+        # 获取计时器类型列表
+        timer_types = self.settings.get_timer_types()
+        current_type = self.settings.get_current_timer_type()
+        current_id = current_type.get('id', 'study')
+        
+        # 添加菜单项
+        for timer_type in timer_types:
+            action = QAction(timer_type.get('name'), self)
+            action.setData(timer_type.get('id'))
+            action.setCheckable(True)
+            if timer_type.get('id') == current_id:
+                action.setChecked(True)
+            menu.addAction(action)
+        
+        # 连接菜单项点击事件
+        menu.triggered.connect(self._on_timer_type_menu_triggered)
+        
+        # 在按钮下方显示菜单
+        button_pos = self.timer_type_button.mapToGlobal(QPoint(0, self.timer_type_button.height()))
+        menu.exec_(button_pos)
+    
+    def _on_timer_type_menu_triggered(self, action: QAction):
+        """计时器类型菜单项点击处理"""
+        type_id = action.data()
+        self._on_timer_type_changed(type_id)
     
     def set_total_time(self, seconds: int):
         """设置总时长"""
@@ -234,10 +309,7 @@ class TimerWidget(QWidget):
         """开始计时"""
         # 如果指定了计时器类型，先切换
         if type_id:
-            for i in range(self.timer_type_combo.count()):
-                if self.timer_type_combo.itemData(i) == type_id:
-                    self.timer_type_combo.setCurrentIndex(i)
-                    break
+            self._on_timer_type_changed(type_id)
         
         if self.remaining_seconds > 0:
             self.is_running = True
@@ -246,7 +318,7 @@ class TimerWidget(QWidget):
             self.update()
             
             # 更新按钮状态
-            self.start_pause_button.setText("暂停")
+            self.update_start_pause_button_icon()
             self.stop_button.setEnabled(True)
             
             # 记录开始时间（如果是首次开始，而不是从暂停恢复）
@@ -274,7 +346,7 @@ class TimerWidget(QWidget):
             self.pause_time = datetime.now()
             
             # 更新按钮状态
-            self.start_pause_button.setText("继续")
+            self.update_start_pause_button_icon()
             
     def stop_timer(self):
         """停止计时"""
@@ -285,7 +357,7 @@ class TimerWidget(QWidget):
         self.update()
         
         # 更新按钮状态
-        self.start_pause_button.setText("开始")
+        self.update_start_pause_button_icon()
         self.stop_button.setEnabled(False)
         
         # 计算实际学习时间（总时间减去剩余时间）
@@ -321,7 +393,7 @@ class TimerWidget(QWidget):
         self.total_pause_duration = 0
         
         # 更新按钮状态
-        self.start_pause_button.setText("开始")
+        self.update_start_pause_button_icon()
         self.stop_button.setEnabled(False)
         
     def _update_time(self):
@@ -337,7 +409,7 @@ class TimerWidget(QWidget):
                 self.timer.stop()
                 
                 # 更新按钮状态
-                self.start_pause_button.setText("开始")
+                self.update_start_pause_button_icon()
                 self.stop_button.setEnabled(False)
                 
                 # 计算实际学习时间（总时间减去剩余时间）
@@ -372,31 +444,27 @@ class TimerWidget(QWidget):
         
         # 如果是学习计时器，切换到休息计时器
         if current_type_id == "study":
-            for i in range(self.timer_type_combo.count()):
-                if self.timer_type_combo.itemData(i) == "rest":
-                    self.timer_type_combo.setCurrentIndex(i)
-                    self.logger.info("从学习计时器切换到休息计时器")
-                    # 确保计时器处于就绪状态
-                    self.is_running = False
-                    self.is_paused = False
-                    self.timer.stop()
-                    self.start_pause_button.setText("开始")
-                    self.stop_button.setEnabled(False)
-                    return
+            self._on_timer_type_changed("rest")
+            self.logger.info("从学习计时器切换到休息计时器")
+            # 确保计时器处于就绪状态
+            self.is_running = False
+            self.is_paused = False
+            self.timer.stop()
+            self.update_start_pause_button_icon()
+            self.stop_button.setEnabled(False)
+            return
         
         # 如果是休息计时器，切换到学习计时器
         elif current_type_id == "rest":
-            for i in range(self.timer_type_combo.count()):
-                if self.timer_type_combo.itemData(i) == "study":
-                    self.timer_type_combo.setCurrentIndex(i)
-                    self.logger.info("从休息计时器切换到学习计时器")
-                    # 确保计时器处于就绪状态
-                    self.is_running = False
-                    self.is_paused = False
-                    self.timer.stop()
-                    self.start_pause_button.setText("开始")
-                    self.stop_button.setEnabled(False)
-                    return
+            self._on_timer_type_changed("study")
+            self.logger.info("从休息计时器切换到学习计时器")
+            # 确保计时器处于就绪状态
+            self.is_running = False
+            self.is_paused = False
+            self.timer.stop()
+            self.update_start_pause_button_icon()
+            self.stop_button.setEnabled(False)
+            return
         
         # 如果是其他计时器，重置当前计时器
         self.logger.info(f"重置计时器类型: {current_type_id}")
@@ -424,10 +492,10 @@ class TimerWidget(QWidget):
         center_y = available_height / 2 + 40  # 向上偏移一点，留出顶部空间
         
         # 计算半径，确保圆圈不会被按钮覆盖
-        max_radius_by_width = width / 2 - 40  # 左右边距
-        max_radius_by_height = available_height / 2 - 40  # 上下边距
+        max_radius_by_width = (width / 2 - 40) * 3/4  # 左右边距，缩小到原来的3/4
+        max_radius_by_height = (available_height / 2 - 40) * 3/4  # 上下边距，缩小到原来的3/4
         radius = min(max_radius_by_width, max_radius_by_height)
-        radius = max(radius, 80)  # 确保最小半径
+        radius = max(radius, 60)  # 确保最小半径为原来的3/4 (80 * 3/4 = 60)
         
         # 绘制背景
         painter.fillRect(event.rect(), self.background_color)
@@ -456,7 +524,7 @@ class TimerWidget(QWidget):
         
         # 绘制时间文本
         time_text = self._format_time()
-        font = QFont("Arial", int(radius / 3))
+        font = QFont("Arial", int(radius / 3 * 3/4))  # 字体大小缩小到原来的3/4
         painter.setFont(font)
         painter.setPen(self.text_color)
         painter.drawText(QRectF(center_x - radius, center_y - radius / 2, radius * 2, radius), 
@@ -470,7 +538,7 @@ class TimerWidget(QWidget):
         else:
             status_text = "就绪"
             
-        font = QFont("Arial", int(radius / 6))
+        font = QFont("Arial", int(radius / 6 * 3/4))  # 字体大小缩小到原来的3/4
         painter.setFont(font)
         painter.drawText(QRectF(center_x - radius, center_y + radius / 4, radius * 2, radius / 2), 
                         Qt.AlignCenter, status_text)
@@ -479,7 +547,7 @@ class TimerWidget(QWidget):
         timer_type = self.settings.get_timer_type_by_id(self.current_timer_type)
         type_name = timer_type.get('name', '')
         
-        font = QFont("Arial", int(radius / 6))
+        font = QFont("Arial", int(radius / 6 * 3/4))  # 字体大小缩小到原来的3/4
         painter.setFont(font)
         painter.drawText(QRectF(center_x - radius, center_y - radius, radius * 2, radius / 2), 
                         Qt.AlignCenter, type_name)
@@ -505,11 +573,6 @@ class TimerWidget(QWidget):
             # 检查该ID是否仍然存在
             timer_type = self.settings.get_timer_type_by_id(current_id)
             if timer_type:
-                # 设置下拉框选中项
-                for i in range(self.timer_type_combo.count()):
-                    if self.timer_type_combo.itemData(i) == current_id:
-                        self.timer_type_combo.setCurrentIndex(i)
-                        break
                 # 更新计时器设置
                 self.set_timer_type(current_id)
             else:
@@ -535,6 +598,13 @@ class TimerWidget(QWidget):
         else:
             # 如果未播放，则开始播放
             self.play_music()
+    
+    def update_play_music_button_icon(self):
+        """更新播放/暂停音乐按钮图标"""
+        if self.is_music_playing:
+            self.play_music_button.setIcon(QIcon("resources/icons/music_pause.png"))
+        else:
+            self.play_music_button.setIcon(QIcon("resources/icons/music_play.png"))
             
     def _on_stop_music_clicked(self):
         """停止音乐按钮点击处理"""
@@ -564,7 +634,7 @@ class TimerWidget(QWidget):
         if success:
             self.is_music_playing = True
             self.current_music_file = sound_file
-            self.play_music_button.setText("暂停音乐")
+            self.update_play_music_button_icon()
             self.stop_music_button.setEnabled(True)
             self.logger.info(f"成功开始播放音乐: {sound_file}")
             return True
@@ -579,7 +649,7 @@ class TimerWidget(QWidget):
             
         self.audio_manager.stop_sound()
         self.is_music_playing = False
-        self.play_music_button.setText("播放音乐")
+        self.update_play_music_button_icon()
         self.logger.info("暂停音乐播放")
         
     def stop_music(self):
@@ -590,6 +660,6 @@ class TimerWidget(QWidget):
         self.audio_manager.stop_sound()
         self.is_music_playing = False
         self.current_music_file = ""
-        self.play_music_button.setText("播放音乐")
+        self.update_play_music_button_icon()
         self.stop_music_button.setEnabled(False)
         self.logger.info("停止音乐播放")

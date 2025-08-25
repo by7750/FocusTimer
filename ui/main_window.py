@@ -110,35 +110,36 @@ class NavigationBar(QFrame):
         """设置样式"""
         self.setStyleSheet("""
             NavigationBar {
-                background-color: #2c3e50;
-                border-bottom: 2px solid #34495e;
+                background-color: #ffffff;
+                border-bottom: 2px solid #e0e0e0;
             }
 
             QLabel#titleLabel {
-                color: #ecf0f1;
+                color: #2c3e50;
                 font-weight: bold;
             }
 
             QPushButton {
-                background-color: #34495e;
-                color: #ecf0f1;
-                border: none;
+                background-color: #f5f5f5;
+                color: #2c3e50;
+                border: 1px solid #e0e0e0;
                 border-radius: 5px;
                 font-size: 12px;
                 font-weight: bold;
             }
 
             QPushButton:hover {
-                background-color: #4a6741;
+                background-color: #e0e0e0;
             }
 
             QPushButton:pressed {
-                background-color: #27ae60;
+                background-color: #d0d0d0;
             }
 
             QPushButton[selected="true"] {
-                background-color: #27ae60;
+                background-color: #3498db;
                 color: white;
+                border: 1px solid #3498db;
             }
         """)
 
@@ -596,12 +597,6 @@ class MainWindow(QMainWindow):
         # 如果没有找到，尝试从notification.sound_file获取（兼容旧版本配置）
         if not sound_file:
             sound_file = self.settings.get("notification.sound_file")
-            
-        # 如果sound_file不是完整路径，则构建完整路径
-        if sound_file and not os.path.isabs(sound_file):
-            # 构建完整路径
-            from pathlib import Path
-            sound_file = str(Path(__file__).parent.parent / "resources" / "sounds" / sound_file)
             
         if sound_file and os.path.exists(sound_file):
             try:
