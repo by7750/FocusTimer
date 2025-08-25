@@ -6,11 +6,11 @@
         "minimize_to_tray": true,
         "window_size": [
             800,
-            624
+            623
         ],
         "window_position": [
-            150,
-            107
+            333,
+            105
         ],
         "close_tip_shown": true
     },
@@ -19,7 +19,7 @@
             {
                 "id": "study",
                 "name": "学习",
-                "duration": 10,
+                "duration": 120,
                 "color": "#4CAF50",
                 "icon": "study"
             },
@@ -45,7 +45,7 @@
                 "icon": "timer"
             }
         ],
-        "current_type": "rest",
+        "current_type": "study",
         "auto_switch": true,
         "auto_start_next": true
     },
@@ -62,7 +62,8 @@
         },
         "popup": {
             "enabled": true
-        }
+        },
+        "show_main_window": true
     },
     "statistics": {
         "data_retention_days": 365,

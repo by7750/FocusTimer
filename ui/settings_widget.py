@@ -15,8 +15,10 @@ from PyQt5.QtGui import QIcon
 
 import os
 import logging
+import json
+import sqlite3
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 
 class TimerTypeDialog(QDialog):
@@ -68,6 +70,7 @@ class SettingsWidget(QWidget):
         self.logger = logging.getLogger(__name__)
         
         self._build_ui()
+        # 确保UI完全构建后再加载设置
         self._load_settings()
     
     def _build_ui(self):
@@ -169,6 +172,19 @@ class SettingsWidget(QWidget):
         data_import_label = QLabel("从文件导入学习记录数据，支持JSON、Excel、SQL格式：")
         data_import_layout.addWidget(data_import_label)
         
+        # 模板下载按钮
+        template_layout = QHBoxLayout()
+        template_label = QLabel("下载数据模板：")
+        template_layout.addWidget(template_label)
+        
+        excel_template_btn = QPushButton("Excel模板")
+        excel_template_btn.setIcon(QIcon.fromTheme("x-office-spreadsheet"))
+        excel_template_btn.clicked.connect(lambda: self._download_template("excel"))
+        template_layout.addWidget(excel_template_btn)
+        
+        template_layout.addStretch()
+        data_import_layout.addLayout(template_layout)
+        
         import_buttons_layout = QHBoxLayout()
         
         # JSON导入按钮
@@ -177,11 +193,7 @@ class SettingsWidget(QWidget):
         json_import_btn.clicked.connect(lambda: self._import_data("json"))
         import_buttons_layout.addWidget(json_import_btn)
         
-        # SQL导入按钮
-        sql_import_btn = QPushButton("导入SQL脚本")
-        sql_import_btn.setIcon(QIcon.fromTheme("text-x-script"))
-        sql_import_btn.clicked.connect(lambda: self._import_data("sql"))
-        import_buttons_layout.addWidget(sql_import_btn)
+
         
         # Excel导入按钮
         excel_import_btn = QPushButton("导入Excel文件")
@@ -246,6 +258,44 @@ class SettingsWidget(QWidget):
         buttons_layout.addWidget(self.save_btn)
         
         main_layout.addLayout(buttons_layout)
+    
+    def _download_template(self, format_type):
+        """下载数据模板文件"""
+        try:
+            if format_type == "excel":
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self, "保存Excel模板", "学习记录模板.xlsx", "Excel文件 (*.xlsx)"
+                )
+                if file_path:
+                    try:
+                        import pandas as pd
+                        
+                        # 创建示例数据，包含所有数据库字段
+                        sample_data = [{
+                            'ID': 1,
+                            '日期': '2024-01-01',
+                            '开始时间': '09:00',
+                            '结束时间': '10:00',
+                            '计时器类型': 'study',
+                            '计划时长(秒)': 3600,
+                            '实际时长(秒)': 3600,
+                            '已完成': True,
+                            '备注': '示例学习记录',
+                            '关联待办ID': '',
+                            '待办内容': '',
+                            '创建时间': '2024-01-01 09:00:00'
+                        }]
+                        
+                        df = pd.DataFrame(sample_data)
+                        df.to_excel(file_path, index=False, engine='openpyxl')
+                        
+                        QMessageBox.information(self, "模板下载成功", f"Excel模板已保存到: {file_path}")
+                    except ImportError:
+                        QMessageBox.warning(self, "缺少依赖", "Excel模板功能需要安装pandas和openpyxl库")
+        
+        except Exception as e:
+            self.logger.error(f"下载模板失败: {e}")
+            QMessageBox.critical(self, "下载失败", f"下载模板时发生错误: {str(e)}")
     
     def _load_settings(self):
         """加载设置"""
@@ -379,10 +429,29 @@ class SettingsWidget(QWidget):
                     # 获取所有学习记录
                     sessions = self.database.get_all_sessions()
                     
+                    # 转换数据格式以匹配导入模板，包含数据库中所有属性的字段名
+                    # 确保字段顺序与导入模板一致
+                    export_sessions = []
+                    for session in sessions:
+                        export_session = {
+                            "date": session["date"],
+                            "start_time": session["start_time"],
+                            "end_time": session["end_time"],
+                            "timer_type": session.get("timer_type", "study"),
+                            "planned_duration": session["planned_duration"],
+                            "actual_duration": session["actual_duration"],
+                            "completed": session["completed"],
+                            "notes": session.get("notes", ""),
+                            "todo_id": session.get("todo_id"),
+                            "todo_content": session.get("todo_content", ""),
+                            "id": session["id"]
+                        }
+                        export_sessions.append(export_session)
+                    
                     # 转换为JSON格式
                     import json
                     with open(file_path, 'w', encoding='utf-8') as f:
-                        json.dump(sessions, f, ensure_ascii=False, indent=4)
+                        json.dump(export_sessions, f, ensure_ascii=False, indent=4)
                     
                     QMessageBox.information(self, "导出成功", f"数据已成功导出到: {file_path}")
             
@@ -394,36 +463,41 @@ class SettingsWidget(QWidget):
                     # 获取所有学习记录
                     sessions = self.database.get_all_sessions()
                     
-                    # 生成SQL插入语句
+                    # 生成SQL脚本，包含表结构和数据
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write("-- 专注学习计时器数据导出\n")
                         f.write("-- 导出时间: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + "\n\n")
                         
                         # 创建表结构
-                        f.write("-- 创建学习记录表\n")
-                        f.write("CREATE TABLE IF NOT EXISTS study_sessions (\n")
-                        f.write("    id INTEGER PRIMARY KEY AUTOINCREMENT,\n")
-                        f.write("    date DATE NOT NULL,\n")
-                        f.write("    start_time DATETIME NOT NULL,\n")
-                        f.write("    end_time DATETIME,\n")
-                        f.write("    timer_type TEXT NOT NULL,\n")
-                        f.write("    planned_duration INTEGER NOT NULL,\n")
-                        f.write("    actual_duration INTEGER,\n")
-                        f.write("    completed BOOLEAN DEFAULT FALSE,\n")
-                        f.write("    notes TEXT,\n")
-                        f.write("    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n")
-                        f.write(");\n\n")
+                        f.write("""CREATE TABLE IF NOT EXISTS study_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date DATE NOT NULL,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME,
+    timer_type TEXT NOT NULL,
+    planned_duration INTEGER NOT NULL,
+    actual_duration INTEGER,
+    completed BOOLEAN DEFAULT FALSE,
+    notes TEXT,
+    todo_id INTEGER,
+    todo_content TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);\n\n""")
                         
                         # 插入数据
                         f.write("-- 插入学习记录数据\n")
                         for session in sessions:
                             f.write(f"INSERT INTO study_sessions (id, date, start_time, end_time, timer_type, ")
-                            f.write(f"planned_duration, actual_duration, completed, notes) VALUES (")
+                            f.write(f"planned_duration, actual_duration, completed, notes, todo_id, todo_content) VALUES (")
                             f.write(f"{session['id']}, '{session['date']}', '{session['start_time']}', ")
                             f.write(f"'{session['end_time']}', '{session['timer_type']}', {session['planned_duration']}, ")
                             f.write(f"{session['actual_duration']}, {1 if session['completed'] else 0}, ")
                             notes = session['notes'].replace("'", "''") if session['notes'] else ""
-                            f.write(f"'{notes}');\n")
+                            todo_id = session.get('todo_id', 'NULL')
+                            todo_content = session.get('todo_content', '')
+                            if todo_content:
+                                todo_content = todo_content.replace("'", "''")
+                            f.write(f"'{notes}', {todo_id}, '{todo_content}');\n")
                     
                     QMessageBox.information(self, "导出成功", f"数据已成功导出到: {file_path}")
             
@@ -442,7 +516,7 @@ class SettingsWidget(QWidget):
                         # 转换为DataFrame
                         df = pd.DataFrame(sessions)
                         
-                        # 重命名列
+                        # 重命名列，包含数据库中所有字段
                         df = df.rename(columns={
                             'id': 'ID',
                             'date': '日期',
@@ -451,8 +525,11 @@ class SettingsWidget(QWidget):
                             'timer_type': '计时器类型',
                             'planned_duration': '计划时长(秒)',
                             'actual_duration': '实际时长(秒)',
-                            'completed': '是否完成',
-                            'notes': '备注'
+                            'completed': '已完成',
+                            'notes': '备注',
+                            'todo_id': '关联待办ID',
+                            'todo_content': '待办内容',
+                            'created_at': '创建时间'
                         })
                         
                         # 导出到Excel
@@ -465,6 +542,167 @@ class SettingsWidget(QWidget):
         except Exception as e:
             self.logger.error(f"导出数据失败: {e}")
             QMessageBox.critical(self, "导出失败", f"导出数据失败: {str(e)}")
+    
+    def _import_json_data(self, file_path):
+        """导入JSON数据"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 验证数据格式
+            if not isinstance(data, list):
+                QMessageBox.warning(self, "格式错误", "JSON文件应包含学习记录数组")
+                return
+            
+            imported_count = 0
+            for record in data:
+                # 验证必需字段
+                required_fields = ['date', 'start_time', 'end_time']
+                if not all(field in record for field in required_fields):
+                    # 兼容旧格式
+                    old_required_fields = ['日期', '开始时间', '结束时间']
+                    if not all(field in record for field in old_required_fields):
+                        continue
+                    # 转换旧格式到新格式
+                    record['date'] = record['日期']
+                    record['start_time'] = record['开始时间']
+                    record['end_time'] = record['结束时间']
+        
+                # 计算持续时间（分钟）
+                duration_minutes = 0
+                if 'actual_duration' in record:
+                    # 使用actual_duration字段（秒）
+                    duration_minutes = record['actual_duration'] / 60
+                elif '实际时长(秒)' in record:
+                    # 兼容旧格式（秒转换为分钟）
+                    duration_minutes = record['实际时长(秒)'] / 60
+                elif 'actual_duration' in record:
+                    # 兼容旧格式（秒转换为分钟）
+                    duration_minutes = record['actual_duration'] / 60 if record['actual_duration'] else 0
+                elif '实际时长(分钟)' in record:
+                    duration_minutes = record['实际时长(分钟)']
+                elif '计划时长(分钟)' in record:
+                    duration_minutes = record['计划时长(分钟)']
+                elif '时长(分钟)' in record:
+                    duration_minutes = record['时长(分钟)']
+        
+                # 插入数据库，包含所有字段
+                try:
+                    self.database.add_session_direct(
+                        record['date'],
+                        record['start_time'],
+                        record['end_time'],
+                        duration_minutes,
+                        record.get('notes', record.get('备注', '')),
+                        record.get('todo_id', record.get('关联待办ID')),
+                        record.get('timer_type', record.get('计时器类型', 'study')),
+                        record.get('planned_duration'),
+                        record.get('actual_duration'),
+                        record.get('completed', True),
+                        record.get('todo_content', ''),
+                        record.get('id')
+                    )
+                    imported_count += 1
+                except Exception as e:
+                    self.logger.warning(f"导入记录失败: {e}")
+                    continue
+        
+            QMessageBox.information(self, "导入成功", f"成功导入 {imported_count} 条学习记录")
+        
+        except json.JSONDecodeError:
+            QMessageBox.warning(self, "格式错误", "无效的JSON文件格式")
+        except Exception as e:
+            QMessageBox.critical(self, "导入失败", f"导入JSON数据失败: {str(e)}")
+    
+
+    
+    def _import_excel_data(self, file_path):
+        """导入Excel数据"""
+        try:
+            import pandas as pd
+            
+            # 读取Excel文件
+            df = pd.read_excel(file_path)
+            
+            # 验证必需列
+            required_columns = ['日期', '开始时间', '结束时间']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            
+            if missing_columns:
+                # 检查是否是英文列名
+                english_required_columns = ['date', 'start_time', 'end_time']
+                missing_english_columns = [col for col in english_required_columns if col not in df.columns]
+                
+                if missing_english_columns:
+                    QMessageBox.warning(self, "格式错误", f"Excel文件缺少必需列: {', '.join(missing_columns)} 或 {', '.join(missing_english_columns)}")
+                    return
+                else:
+                    # 重命名英文列名为中文
+                    df = df.rename(columns={
+                        'date': '日期',
+                        'start_time': '开始时间',
+                        'end_time': '结束时间',
+                        'notes': '备注',
+                        'todo_id': '关联待办ID',
+                        'todo_content': '待办内容',
+                        'timer_type': '计时器类型',
+                        'planned_duration': '计划时长(秒)',
+                        'actual_duration': '实际时长(秒)',
+                        'completed': '已完成',
+                        'id': 'ID'
+                    })
+            
+            imported_count = 0
+            for _, row in df.iterrows():
+                try:
+                    # 处理日期格式
+                    date_value = row['日期']
+                    if isinstance(date_value, str):
+                        date_str = date_value
+                    else:
+                        date_str = date_value.strftime('%Y-%m-%d')
+                    
+                    # 计算持续时间（分钟）
+                    duration_minutes = 0
+                    if '实际时长(秒)' in row:
+                        # 使用实际时长(秒)字段
+                        duration_minutes = float(row['实际时长(秒)']) / 60
+                    elif 'actual_duration' in row:
+                        # 兼容旧格式（秒转换为分钟）
+                        duration_minutes = float(row['actual_duration']) / 60 if row['actual_duration'] else 0
+                    elif '实际时长(分钟)' in row:
+                        duration_minutes = float(row['实际时长(分钟)'])
+                    elif '计划时长(分钟)' in row:
+                        duration_minutes = float(row['计划时长(分钟)'])
+                    elif '时长(分钟)' in row:
+                        duration_minutes = float(row['时长(分钟)'])
+                    
+                    # 插入数据库，包含所有字段
+                    self.database.add_session_direct(
+                        date_str,
+                        str(row['开始时间']),
+                        str(row['结束时间']),
+                        duration_minutes,
+                        str(row.get('备注', '')),
+                        row.get('关联待办ID'),
+                        str(row.get('计时器类型', 'study')),
+                        int(row.get('计划时长(秒)', 0)) if '计划时长(秒)' in row else None,
+                        int(row.get('实际时长(秒)', 0)) if '实际时长(秒)' in row else None,
+                        bool(row.get('已完成', True)) if '已完成' in row else True,
+                        str(row.get('待办内容', '')) if '待办内容' in row else '',
+                        int(row.get('ID', 0)) if 'ID' in row else None
+                    )
+                    imported_count += 1
+                except Exception as e:
+                    self.logger.warning(f"导入记录失败: {e}")
+                    continue
+            
+            QMessageBox.information(self, "导入成功", f"成功导入 {imported_count} 条学习记录")
+            
+        except ImportError:
+            QMessageBox.warning(self, "缺少依赖", "导入Excel需要安装pandas和openpyxl库，请使用pip安装：\npip install pandas openpyxl")
+        except Exception as e:
+            QMessageBox.critical(self, "导入失败", f"导入Excel数据失败: {str(e)}")
     
     def _edit_timer_type(self):
         """编辑计时器类型"""
@@ -539,3 +777,26 @@ class SettingsWidget(QWidget):
         
         if file_path:
             self.sound_file_edit.setText(file_path)
+
+    def _import_data(self, format_type):
+        """导入数据"""
+        try:
+            if format_type == "json":
+                file_path, _ = QFileDialog.getOpenFileName(
+                    self, "选择JSON文件", "", "JSON文件 (*.json)"
+                )
+                if file_path:
+                    self._import_json_data(file_path)
+            
+
+            
+            elif format_type == "excel":
+                file_path, _ = QFileDialog.getOpenFileName(
+                    self, "选择Excel文件", "", "Excel文件 (*.xlsx *.xls)"
+                )
+                if file_path:
+                    self._import_excel_data(file_path)
+        
+        except Exception as e:
+            self.logger.error(f"导入数据失败: {e}")
+            QMessageBox.critical(self, "导入失败", f"导入数据失败: {str(e)}")

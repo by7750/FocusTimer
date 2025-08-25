@@ -91,6 +91,10 @@ class Database:
                                FALSE,
                                notes
                                TEXT,
+                               todo_id
+                               INTEGER,
+                               todo_content
+                               TEXT,
                                created_at
                                DATETIME
                                DEFAULT
@@ -583,7 +587,116 @@ class Database:
         except Exception as e:
             self.logger.error(f"删除会话失败: {e}")
             raise
-
+    
+    def add_session_direct(self, date_str: str, start_time: str, end_time: str, 
+                          duration_minutes: float, notes: str = "", todo_id: int = None, 
+                          timer_type: str = "study", planned_duration: int = None, 
+                          actual_duration: int = None, completed: bool = True, 
+                          todo_content: str = "", id: int = None) -> int:
+        """
+        直接添加学习会话记录（用于数据导入）
+        
+        Args:
+            date_str: 日期字符串 (YYYY-MM-DD)
+            start_time: 开始时间字符串
+            end_time: 结束时间字符串
+            duration_minutes: 持续时间（分钟）
+            notes: 备注
+            todo_id: 关联的TODO项目ID
+            timer_type: 计时器类型
+            planned_duration: 计划时长（秒）
+            actual_duration: 实际时长（秒）
+            completed: 是否完成
+            todo_content: 待办内容
+            id: 会话ID
+            
+        Returns:
+            会话ID
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 转换时间格式
+            session_date = date.fromisoformat(date_str)
+            
+            # 解析开始和结束时间
+            if len(start_time.split()) == 1:  # 只有时间部分
+                start_datetime = datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M:%S")
+            else:  # 完整的日期时间
+                start_datetime = datetime.fromisoformat(start_time)
+                
+            if end_time:
+                if len(end_time.split()) == 1:  # 只有时间部分
+                    end_datetime = datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M:%S")
+                else:  # 完整的日期时间
+                    end_datetime = datetime.fromisoformat(end_time)
+            else:
+                end_datetime = None
+            
+            # 转换持续时间为秒
+            if actual_duration is None:
+                actual_duration = int(duration_minutes * 60)
+            if planned_duration is None:
+                planned_duration = actual_duration  # 假设计划时长等于实际时长
+            
+            # 获取待办内容（如果有）
+            if todo_id and not todo_content:
+                cursor.execute('SELECT content FROM todo_items WHERE id = ?', (todo_id,))
+                result = cursor.fetchone()
+                if result:
+                    todo_content = result['content']
+            
+            # 检查表中是否存在todo_id字段
+            cursor.execute("PRAGMA table_info(study_sessions)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # 检查是否存在todo_content字段
+            has_todo_content = 'todo_content' in columns
+            
+            if 'todo_id' in columns and has_todo_content:
+                cursor.execute('''
+                               INSERT INTO study_sessions (id, date, start_time, end_time, timer_type, 
+                                                          planned_duration, actual_duration, completed, 
+                                                          notes, todo_id, todo_content)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ''', (id, session_date, start_datetime, end_datetime, timer_type,
+                                   planned_duration, actual_duration, completed, notes, todo_id, todo_content))
+            elif 'todo_id' in columns and not has_todo_content:
+                # 添加todo_content字段
+                cursor.execute('ALTER TABLE study_sessions ADD COLUMN todo_content TEXT')
+                cursor.execute('''
+                               INSERT INTO study_sessions (id, date, start_time, end_time, timer_type, 
+                                                          planned_duration, actual_duration, completed, 
+                                                          notes, todo_id, todo_content)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ''', (id, session_date, start_datetime, end_datetime, timer_type,
+                                   planned_duration, actual_duration, completed, notes, todo_id, todo_content))
+            elif not 'todo_id' in columns:
+                # 添加todo_id和todo_content字段
+                cursor.execute('ALTER TABLE study_sessions ADD COLUMN todo_id INTEGER')
+                cursor.execute('ALTER TABLE study_sessions ADD COLUMN todo_content TEXT')
+                cursor.execute('''
+                               INSERT INTO study_sessions (id, date, start_time, end_time, timer_type, 
+                                                          planned_duration, actual_duration, completed, 
+                                                          notes, todo_id, todo_content)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ''', (id, session_date, start_datetime, end_datetime, timer_type,
+                                   planned_duration, actual_duration, completed, notes, todo_id, todo_content))
+            
+            session_id = cursor.lastrowid
+            conn.commit()
+            
+            # 更新统计数据
+            self._update_daily_stats(session_date)
+            
+            self.logger.info(f"直接添加会话记录: ID={session_id}, 日期={date_str}, 时长={duration_minutes}分钟")
+            return session_id
+            
+        except Exception as e:
+            self.logger.error(f"直接添加会话记录失败: {e}")
+            raise
+    
     def get_daily_sessions(self, target_date: date = None) -> List[Dict]:
         """
         获取指定日期的学习会话记录
@@ -604,6 +717,7 @@ class Database:
             # 检查表中是否存在todo_id字段
             cursor.execute("PRAGMA table_info(study_sessions)")
             columns = [column[1] for column in cursor.fetchall()]
+            self.logger.debug(f"study_sessions表字段: {columns}")
             
             if 'todo_id' in columns:
                 # 检查表中是否存在todo_content字段
@@ -639,6 +753,7 @@ class Database:
                                ''', (target_date,))
 
             results = cursor.fetchall()
+            self.logger.debug(f"查询到{len(results)}条会话记录")
             sessions = []
 
             for row in results:
@@ -661,11 +776,14 @@ class Database:
                 
                 # 添加TODO相关信息（无论是否存在）
                 if 'todo_id' in columns:
-                    session['todo_id'] = row['todo_id'] if 'todo_id' in row else None
-                    session['todo_content'] = row['todo_content'] if 'todo_content' in row else ''
+                    # 将Row对象转换为字典以便正确访问字段
+                    row_dict = dict(row)
+                    session['todo_id'] = row_dict.get('todo_id')
+                    session['todo_content'] = row_dict.get('todo_content', '')
                 
                 sessions.append(session)
 
+            self.logger.debug(f"返回{len(sessions)}条会话记录")
             return sessions
 
         except Exception as e:
@@ -788,10 +906,31 @@ class Database:
             conn = self._get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
-                SELECT * FROM study_sessions 
-                ORDER BY start_time DESC
-            ''')
+            # 检查表中是否存在todo_id和todo_content字段
+            cursor.execute("PRAGMA table_info(study_sessions)")
+            columns = [column[1] for column in cursor.fetchall()]
+            has_todo_id = 'todo_id' in columns
+            has_todo_content = 'todo_content' in columns
+
+            # 构建查询语句，确保包含所有字段
+            if has_todo_id and has_todo_content:
+                cursor.execute('''
+                    SELECT * FROM study_sessions 
+                    ORDER BY start_time DESC
+                ''')
+            elif has_todo_id and not has_todo_content:
+                # 如果有todo_id但没有todo_content，通过连表查询获取
+                cursor.execute('''
+                    SELECT s.*, t.content as todo_content FROM study_sessions s
+                    LEFT JOIN todo_items t ON s.todo_id = t.id
+                    ORDER BY s.start_time DESC
+                ''')
+            else:
+                # 如果没有todo_id字段，直接查询所有字段
+                cursor.execute('''
+                    SELECT * FROM study_sessions 
+                    ORDER BY start_time DESC
+                ''')
 
             results = cursor.fetchall()
             return [dict(row) for row in results]
@@ -992,6 +1131,82 @@ class Database:
         except Exception as e:
             self.logger.error(f"获取总学习时间失败: {e}")
             return 0
+
+    def get_todo_study_stats(self, target_date: date = None) -> List[Dict]:
+        """
+        获取指定日期各个TODO的学习时长统计
+        
+        Args:
+            target_date: 目标日期，默认为今天
+            
+        Returns:
+            TODO学习统计列表，包含todo_content和total_duration
+        """
+        try:
+            if target_date is None:
+                target_date = date.today()
+                
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # 检查表中是否存在todo_content字段
+            cursor.execute("PRAGMA table_info(study_sessions)")
+            columns = [column[1] for column in cursor.fetchall()]
+            has_todo_content = 'todo_content' in columns
+            has_todo_id = 'todo_id' in columns
+            
+            if has_todo_content:
+                # 直接使用todo_content字段统计
+                cursor.execute('''
+                    SELECT 
+                        COALESCE(todo_content, '未分类') as todo_name,
+                        SUM(CASE WHEN completed THEN actual_duration ELSE 0 END) as total_duration
+                    FROM study_sessions
+                    WHERE date = ? AND timer_type = 'study' AND actual_duration IS NOT NULL
+                    GROUP BY COALESCE(todo_content, '未分类')
+                    HAVING total_duration > 0
+                    ORDER BY total_duration DESC
+                ''', (target_date,))
+            elif has_todo_id:
+                # 通过连表查询获取TODO内容
+                cursor.execute('''
+                    SELECT 
+                        COALESCE(t.content, '未分类') as todo_name,
+                        SUM(CASE WHEN s.completed THEN s.actual_duration ELSE 0 END) as total_duration
+                    FROM study_sessions s
+                    LEFT JOIN todo_items t ON s.todo_id = t.id
+                    WHERE s.date = ? AND s.timer_type = 'study' AND s.actual_duration IS NOT NULL
+                    GROUP BY COALESCE(t.content, '未分类')
+                    HAVING total_duration > 0
+                    ORDER BY total_duration DESC
+                ''', (target_date,))
+            else:
+                # 没有TODO关联，返回总体统计
+                cursor.execute('''
+                    SELECT 
+                        '学习时间' as todo_name,
+                        SUM(CASE WHEN completed THEN actual_duration ELSE 0 END) as total_duration
+                    FROM study_sessions
+                    WHERE date = ? AND timer_type = 'study' AND actual_duration IS NOT NULL
+                    HAVING total_duration > 0
+                ''', (target_date,))
+            
+            results = cursor.fetchall()
+            stats = []
+            
+            for row in results:
+                stats.append({
+                    'todo_name': row['todo_name'],
+                    'total_duration': row['total_duration'],  # 秒
+                    'duration_minutes': round(row['total_duration'] / 60, 1),  # 分钟
+                    'duration_hours': round(row['total_duration'] / 3600, 2)  # 小时
+                })
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"获取TODO学习统计失败: {e}")
+            return []
 
     def backup_data(self, backup_file: str = None) -> str:
         """

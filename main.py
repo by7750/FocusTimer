@@ -37,7 +37,7 @@ class FocusTimerApp:
         """设置日志系统"""
         log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         logging.basicConfig(
-            level=logging.INFO,
+            level=logging.DEBUG,
             format=log_format,
             handlers=[
                 logging.FileHandler('focus_timer.log', encoding='utf-8'),
