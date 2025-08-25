@@ -597,6 +597,12 @@ class MainWindow(QMainWindow):
         if not sound_file:
             sound_file = self.settings.get("notification.sound_file")
             
+        # 如果sound_file不是完整路径，则构建完整路径
+        if sound_file and not os.path.isabs(sound_file):
+            # 构建完整路径
+            from pathlib import Path
+            sound_file = str(Path(__file__).parent.parent / "resources" / "sounds" / sound_file)
+            
         if sound_file and os.path.exists(sound_file):
             try:
                 # 使用音频管理器播放声音

@@ -215,14 +215,15 @@ class SettingsWidget(QWidget):
         self.sound_enabled_check = QCheckBox("启用声音提醒")
         sound_layout.addRow(self.sound_enabled_check)
         
+        # 音频文件选择
         sound_file_layout = QHBoxLayout()
-        self.sound_file_edit = QLineEdit()
-        self.sound_file_edit.setReadOnly(True)
-        sound_file_layout.addWidget(self.sound_file_edit)
+        self.sound_file_combo = QComboBox()
+        self._load_sound_files()
+        sound_file_layout.addWidget(self.sound_file_combo)
         
-        self.browse_sound_btn = QPushButton("浏览...")
-        self.browse_sound_btn.clicked.connect(self._browse_sound_file)
-        sound_file_layout.addWidget(self.browse_sound_btn)
+        self.import_sound_btn = QPushButton("导入音频...")
+        self.import_sound_btn.clicked.connect(self._import_sound_file)
+        sound_file_layout.addWidget(self.import_sound_btn)
         
         sound_layout.addRow("提醒音乐:", sound_file_layout)
         notification_layout.addWidget(sound_group)
@@ -312,7 +313,21 @@ class SettingsWidget(QWidget):
             self.sound_enabled_check.setChecked(sound_enabled)
             
             sound_file = self.settings.get('notification.sound.file', '')
-            self.sound_file_edit.setText(sound_file)
+            # 首先尝试通过完整路径查找
+            index = -1
+            for i in range(self.sound_file_combo.count()):
+                if self.sound_file_combo.itemData(i) == sound_file:
+                    index = i
+                    break
+            
+            # 如果没有通过完整路径找到，尝试通过文件名查找
+            if index < 0:
+                index = self.sound_file_combo.findText(sound_file)
+            
+            if index >= 0:
+                self.sound_file_combo.setCurrentIndex(index)
+            else:
+                self.sound_file_combo.setCurrentIndex(0)  # 默认选择"(无)"
             
             # 加载弹窗提醒设置
             popup_enabled = self.settings.get('notification.popup.enabled', True)
@@ -343,7 +358,19 @@ class SettingsWidget(QWidget):
             
             # 保存声音提醒设置
             self.settings.set('notification.sound.enabled', self.sound_enabled_check.isChecked())
-            self.settings.set('notification.sound.file', self.sound_file_edit.text())
+            
+            # 保存音频文件路径，保存完整路径
+            sound_file = self.sound_file_combo.currentData()
+            if sound_file and sound_file != "(无)":
+                # 保存完整路径
+                pass
+            else:
+                sound_file = self.sound_file_combo.currentText()
+                if sound_file and sound_file != "(无)":
+                    # 如果没有完整路径，只保存文件名
+                    from pathlib import Path
+                    sound_file = Path(sound_file).name
+            self.settings.set('notification.sound.file', sound_file)
             
             # 保存弹窗提醒设置
             self.settings.set('notification.popup.enabled', self.popup_enabled_check.isChecked())
@@ -769,14 +796,70 @@ class SettingsWidget(QWidget):
                 self.logger.error(f"删除计时器类型失败: {e}")
                 QMessageBox.critical(self, "删除失败", f"删除计时器类型失败: {e}")
     
-    def _browse_sound_file(self):
-        """浏览音乐文件"""
+    def _import_sound_file(self):
+        """导入音频文件"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "选择提醒音乐", "", "音频文件 (*.mp3 *.wav);;所有文件 (*.*)"
+            self, "选择音频文件", "", "音频文件 (*.mp3 *.wav);;所有文件 (*.*)"
         )
         
         if file_path:
-            self.sound_file_edit.setText(file_path)
+            try:
+                # 复制文件到resources/sounds目录
+                import os
+                import shutil
+                from pathlib import Path
+                
+                # 获取文件名
+                filename = Path(file_path).name
+                
+                # 目标路径
+                target_dir = Path(__file__).parent.parent / "resources" / "sounds"
+                target_path = target_dir / filename
+                
+                # 确保目录存在
+                target_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 复制文件
+                shutil.copy2(file_path, target_path)
+                
+                # 更新下拉列表
+                self._load_sound_files()
+                # 设置当前选中项为完整路径
+                for i in range(self.sound_file_combo.count()):
+                    if self.sound_file_combo.itemData(i) == str(target_path):
+                        self.sound_file_combo.setCurrentIndex(i)
+                        break
+                
+                QMessageBox.information(self, "导入成功", f"音频文件已导入: {filename}")
+                
+            except Exception as e:
+                self.logger.error(f"导入音频文件失败: {e}")
+                QMessageBox.critical(self, "导入失败", f"导入音频文件失败: {str(e)}")
+    
+    def _load_sound_files(self):
+        """加载音频文件到下拉列表"""
+        try:
+            from pathlib import Path
+            
+            # 清空下拉列表
+            self.sound_file_combo.clear()
+            
+            # 获取sounds目录
+            sounds_dir = Path(__file__).parent.parent / "resources" / "sounds"
+            
+            # 确保目录存在
+            sounds_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 添加默认选项
+            self.sound_file_combo.addItem("(无)")
+            
+            # 添加音频文件
+            for file_path in sounds_dir.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in ['.wav', '.mp3']:
+                    self.sound_file_combo.addItem(file_path.name, str(file_path))
+                    
+        except Exception as e:
+            self.logger.error(f"加载音频文件失败: {e}")
 
     def _import_data(self, format_type):
         """导入数据"""

@@ -58,7 +58,7 @@
         "desktop_notification": true,
         "sound": {
             "enabled": true,
-            "file": "E:/UserData/Music/曼波/曼波 (2).mp3"
+            "file": "E:\\code\\Python\\timer\\resources\\sounds\\default_alarm.wav"
         },
         "popup": {
             "enabled": true
